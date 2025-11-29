@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admin email listesi
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'vli.kcc@gmail.com';
+    }
+    
+    // Yetkili kullanıcı kontrolü
+    function isAuthorized() {
+      return isAdmin() || 
+             exists(/databases/$(database)/documents/artifacts/quiz-master-pro/public/data/authorizedUsers/$(request.auth.token.email));
+    }
+    
+    // Yarışma yaratıcısı kontrolü
+    function isCreator(pollData) {
+      return request.auth != null && 
+             (pollData.creatorEmail == request.auth.token.email || 
+              pollData.creatorId == request.auth.uid);
+    }
+    
+    match /artifacts/quiz-master-pro/public/data/{document=**} {
+      // Herkes okuyabilir (yarışmalara katılmak için)
+      allow read: if true;
+      
+      // Yarışma oluşturma - sadece yetkili kullanıcılar
+      allow create: if request.auth != null && isAuthorized();
+      
+      // Yarışma güncelleme - admin veya yaratıcı
+      allow update: if request.auth != null && 
+                       (isAdmin() || isCreator(resource.data));
+      
+      // Yarışma silme - admin veya yaratıcı
+      allow delete: if request.auth != null && 
+                       (isAdmin() || isCreator(resource.data));
+    }
+    
+    // Yetkili kullanıcılar koleksiyonu - sadece admin yönetebilir
+    match /artifacts/quiz-master-pro/public/data/authorizedUsers/{email} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    
+    // Oylar ve skorlar - herkes yazabilir (yarışmaya katılım için)
+    match /artifacts/quiz-master-pro/public/data/polls/{pollId}/votes/{voteId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+    }
+    
+    match /artifacts/quiz-master-pro/public/data/scores/{scoreId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}
+

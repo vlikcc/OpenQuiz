@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open Quiz</title>
+    <script>
+      // Firebase yapılandırması
+      window.__firebase_config = JSON.stringify({
+        apiKey: "demo-api-key",
+        authDomain: "demo-project.firebaseapp.com",
+        projectId: "demo-project",
+        storageBucket: "demo-project.appspot.com",
+        messagingSenderId: "123456789",
+        appId: "1:123456789:web:abcdef"
+      });
+      window.__app_id = 'quiz-app';
+      window.__initial_auth_token = null;
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
