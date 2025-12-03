@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { doc, collection, onSnapshot, updateDoc } from 'firebase/firestore';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense, useRef } from 'react';
+import { doc, collection, onSnapshot, updateDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
-import { Home, QrCode, Users, Trophy, Loader2, ChevronRight, ChevronLeft, BarChart3, MessageSquare } from 'lucide-react';
+import { Home, QrCode, Users, Trophy, Loader2, ChevronRight, ChevronLeft, BarChart3, MessageSquare, RefreshCw } from 'lucide-react';
 import { db, appId, COLORS, CONTENT_TYPES } from '../config/firebase';
 import QrModal from './QrModal';
 import KatexRenderer from './KatexRenderer';
+import { throttle } from '../utils/performanceUtils';
 
 const ResultsAnalysis = lazy(() => import('./ResultsAnalysis'));
 
@@ -14,75 +15,208 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
   const [activeTab, setActiveTab] = useState('chart');
   const [showQr, setShowQr] = useState(false);
   const [votes, setVotes] = useState([]);
+  const [openAnswers, setOpenAnswers] = useState([]);
+  const [isLoadingAnswers, setIsLoadingAnswers] = useState(false);
+  
+  // Listener unsubscribe ref'leri
+  const votesUnsubRef = useRef(null);
+  const openAnswersUnsubRef = useRef(null);
 
+  // Poll dinleyici - ana veri kaynağı
   useEffect(() => {
     if (!pollId) return;
-    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId), (docSnap) => {
-      if (docSnap.exists()) setPoll({ id: docSnap.id, ...docSnap.data() });
-      else { showToast("Yarışma bulunamadı", "error"); onExit(); }
+    
+    const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+    
+    return onSnapshot(pollRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setPoll({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        showToast("Yarışma bulunamadı", "error");
+        onExit();
+      }
+    }, (error) => {
+      console.error('Poll listener error:', error);
+      showToast("Bağlantı hatası", "error");
     });
-  }, [pollId]);
+  }, [pollId, showToast, onExit]);
 
+  // Votes dinleyici - sadece gerektiğinde ve optimize edilmiş
   useEffect(() => {
-    if (!pollId) return;
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const votesData = snapshot.docs.map(doc => doc.data());
+    if (!pollId || !poll) return;
+    
+    // Önceki listener'ı temizle
+    if (votesUnsubRef.current) {
+      votesUnsubRef.current();
+    }
+    
+    const currentQIndex = poll.currentQuestionIndex || 0;
+    const currentQuestion = poll.questions[currentQIndex];
+    
+    // Açık uçlu soru değilse ve aggregated data varsa, votes dinlemeye gerek yok
+    if (currentQuestion?.questionType !== 'open' && poll.voteCounts) {
+      return;
+    }
+    
+    // Sadece mevcut soru için oyları dinle
+    const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes');
+    
+    // Throttled update fonksiyonu
+    const throttledSetVotes = throttle((votesData) => {
       setVotes(votesData);
+    }, 500);
+    
+    const unsubscribe = onSnapshot(votesRef, (snapshot) => {
+      const votesData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Yeni ve eski format uyumluluğu
+        return {
+          questionIndex: data.qi ?? data.questionIndex,
+          optionIndex: data.oi ?? data.optionIndex,
+          userId: data.uid ?? data.userId,
+          userName: data.un ?? data.userName,
+          isCorrect: data.c ?? data.isCorrect,
+          questionType: data.qt ?? data.questionType,
+          answer: data.ans ?? data.answer,
+          timestamp: data.ts ?? data.timestamp
+        };
+      });
+      throttledSetVotes(votesData);
+    }, (error) => {
+      console.error('Votes listener error:', error);
     });
-    return () => unsubscribe();
-  }, [pollId]);
+    
+    votesUnsubRef.current = unsubscribe;
+    
+    return () => {
+      if (votesUnsubRef.current) {
+        votesUnsubRef.current();
+      }
+    };
+  }, [pollId, poll?.currentQuestionIndex]);
 
+  // Açık uçlu cevapları ayrı dinle - sadece açık uçlu soruda
   useEffect(() => {
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
-    return onSnapshot(q, (snapshot) => {
+    if (!pollId || !poll) return;
+    
+    const currentQIndex = poll.currentQuestionIndex || 0;
+    const currentQuestion = poll.questions[currentQIndex];
+    
+    if (currentQuestion?.questionType !== 'open') {
+      setOpenAnswers([]);
+      return;
+    }
+    
+    setIsLoadingAnswers(true);
+    
+    const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes');
+    
+    const unsubscribe = onSnapshot(votesRef, (snapshot) => {
+      const answers = snapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          const qIndex = data.qi ?? data.questionIndex;
+          const qType = data.qt ?? data.questionType;
+          
+          if (qIndex !== currentQIndex || qType !== 'open') return null;
+          
+          return {
+            userName: data.un ?? data.userName,
+            answer: data.ans ?? data.answer,
+            timestamp: data.ts ?? data.timestamp
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      
+      setOpenAnswers(answers);
+      setIsLoadingAnswers(false);
+    });
+    
+    openAnswersUnsubRef.current = unsubscribe;
+    
+    return () => {
+      if (openAnswersUnsubRef.current) {
+        openAnswersUnsubRef.current();
+      }
+    };
+  }, [pollId, poll?.currentQuestionIndex]);
+
+  // Leaderboard dinleyici - throttled
+  useEffect(() => {
+    const scoresRef = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+    
+    const throttledSetLeaderboard = throttle((scores) => {
+      setLeaderboard(scores);
+    }, 1000);
+    
+    return onSnapshot(scoresRef, (snapshot) => {
       let scores = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       scores.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.totalTime || 0) - (b.totalTime || 0));
-      setLeaderboard(scores);
+      throttledSetLeaderboard(scores.slice(0, 50)); // İlk 50 kişi
     });
   }, []);
 
-  const changeQuestion = async (direction) => {
+  const changeQuestion = useCallback(async (direction) => {
     if (!poll) return;
     const newIndex = poll.currentQuestionIndex + direction;
     if (newIndex >= 0 && newIndex < poll.questions.length) {
       const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
       await updateDoc(pollRef, { currentQuestionIndex: newIndex });
     }
-  };
+  }, [poll, pollId]);
 
+  // Seçenekleri hesapla - önce aggregated data, yoksa votes'tan hesapla
   const currentOptions = useMemo(() => {
     if (!poll) return [];
     const currentQIndex = poll.currentQuestionIndex || 0;
     const currentQuestion = poll.questions[currentQIndex];
-    const calculatedOptions = currentQuestion.options.map(opt => ({...opt, votes: 0}));
+    
+    if (!currentQuestion.options) return [];
+    
+    const calculatedOptions = currentQuestion.options.map((opt, idx) => ({
+      ...opt, 
+      votes: 0
+    }));
 
-    votes.forEach(vote => {
-      if (vote.questionIndex === currentQIndex && calculatedOptions[vote.optionIndex]) {
-        calculatedOptions[vote.optionIndex].votes += 1;
-      }
-    });
+    // Önce aggregated data kontrol et
+    const qKey = `q${currentQIndex}`;
+    if (poll.voteCounts && poll.voteCounts[qKey]) {
+      const qVotes = poll.voteCounts[qKey];
+      calculatedOptions.forEach((opt, idx) => {
+        opt.votes = qVotes[`o${idx}`] || 0;
+      });
+    } else {
+      // Fallback: votes array'den hesapla
+      votes.forEach(vote => {
+        if (vote.questionIndex === currentQIndex && calculatedOptions[vote.optionIndex]) {
+          calculatedOptions[vote.optionIndex].votes += 1;
+        }
+      });
+    }
 
     return calculatedOptions;
   }, [poll, votes]);
 
-  // Açık uçlu sorulara gelen cevapları filtrele - hooks her zaman çağrılmalı
-  const openAnswers = useMemo(() => {
-    if (!poll) return [];
-    const currentQIdx = poll.currentQuestionIndex || 0;
-    const currentQ = poll.questions[currentQIdx];
-    if (!currentQ || currentQ.questionType !== 'open') return [];
+  // Toplam oy sayısı
+  const totalVotes = useMemo(() => {
+    if (!poll) return 0;
+    const currentQIndex = poll.currentQuestionIndex || 0;
+    const qKey = `q${currentQIndex}`;
     
-    return votes
-      .filter(v => v.questionIndex === currentQIdx && v.questionType === 'open')
-      .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
-  }, [poll, votes]);
+    // Aggregated data varsa oradan al
+    if (poll.voteCounts && poll.voteCounts[qKey]) {
+      return poll.voteCounts[qKey].total || 0;
+    }
+    
+    // Fallback
+    return currentOptions.reduce((acc, c) => acc + (c.votes || 0), 0);
+  }, [poll, currentOptions]);
 
   if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   const currentQIndex = poll.currentQuestionIndex || 0;
   const currentQuestion = poll.questions[currentQIndex];
-  const totalVotes = currentOptions.reduce((acc, c) => acc + (c.votes || 0), 0);
   const isLastQuestion = currentQIndex === poll.questions.length - 1;
   const pollType = poll.type || 'contest';
   const isSurvey = pollType === 'survey';
@@ -110,7 +244,7 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
         
         <div className="flex items-center gap-2 sm:gap-3 order-2 sm:order-3">
           <div className="bg-blue-50 text-blue-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-2 border border-blue-100">
-            <Users size={12} /> {totalVotes}
+            <Users size={12} /> {isOpenQuestion ? openAnswers.length : totalVotes}
           </div>
           <button onClick={onSwitchToVoter} className="hidden lg:flex bg-indigo-50 text-indigo-600 px-3 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold hover:bg-indigo-100">Test Et</button>
         </div>
@@ -157,9 +291,12 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
                       <MessageSquare className="text-rose-600" size={20} />
                       <h3 className="font-bold text-slate-800">Gelen Cevaplar</h3>
                     </div>
-                    <span className="bg-rose-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-                      {openAnswers.length} cevap
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {isLoadingAnswers && <RefreshCw size={14} className="animate-spin text-rose-400" />}
+                      <span className="bg-rose-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                        {openAnswers.length} cevap
+                      </span>
+                    </div>
                   </div>
                   
                   <div className="max-h-[40vh] overflow-y-auto divide-y divide-slate-100">
@@ -175,7 +312,7 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
                             <div className="flex-1">
                               <div className="text-sm font-bold text-slate-800 mb-1">{ans.userName}</div>
                               <div className="text-slate-600">
-                                {ans.answer.includes('$') ? (
+                                {ans.answer?.includes?.('$') ? (
                                   <KatexRenderer text={ans.answer} />
                                 ) : (
                                   ans.answer
@@ -275,12 +412,21 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
                 <Trophy size={40} className="mx-auto text-yellow-600 mb-2" />
                 <h2 className="text-xl sm:text-2xl font-black text-slate-800">Genel Puan Durumu</h2>
               </div>
-              {leaderboard.map((p, i) => (
-                <div key={p.id} className="flex justify-between p-3 sm:p-4 border-b border-slate-50 hover:bg-slate-50">
-                  <div className="flex gap-2 sm:gap-3 font-bold text-slate-700 text-sm sm:text-base"><span>#{i+1}</span> <span>{p.id}</span></div>
-                  <div className="font-mono text-indigo-600 font-bold text-sm sm:text-base">{p.score || 0} Puan</div>
+              {leaderboard.length === 0 ? (
+                <div className="p-8 text-center text-slate-400">
+                  Henüz skor yok
                 </div>
-              ))}
+              ) : (
+                leaderboard.map((p, i) => (
+                  <div key={p.id} className="flex justify-between p-3 sm:p-4 border-b border-slate-50 hover:bg-slate-50">
+                    <div className="flex gap-2 sm:gap-3 font-bold text-slate-700 text-sm sm:text-base">
+                      <span className={i < 3 ? 'text-yellow-600' : ''}>#{i+1}</span> 
+                      <span>{p.id}</span>
+                    </div>
+                    <div className="font-mono text-indigo-600 font-bold text-sm sm:text-base">{p.score || 0} Puan</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -312,4 +458,3 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
     </div>
   );
 }
-

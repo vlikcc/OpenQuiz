@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
-import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment } from 'firebase/firestore';
-import { CheckCircle2, XCircle, Loader2, UserCircle, Send } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment, runTransaction } from 'firebase/firestore';
+import { CheckCircle2, XCircle, Loader2, Send } from 'lucide-react';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import KatexRenderer from './KatexRenderer';
+import { cacheUtils } from '../utils/performanceUtils';
 
 export default function VoterMode({ pollId, onExit, user, showToast }) {
   const [step, setStep] = useState('name'); 
@@ -15,36 +16,56 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [openAnswer, setOpenAnswer] = useState('');
+  
+  // Optimizasyon: Oy verilen soruları takip et
+  const votedQuestionsRef = useRef(new Set());
 
+  // Poll dinleyici - optimize edildi
   useEffect(() => {
     const savedName = localStorage.getItem('voterName');
     if (savedName) setUserName(savedName);
     if (!pollId) return;
 
-    return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId), (docSnap) => {
+    // Sadece gerekli alanları dinle
+    const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+    
+    return onSnapshot(pollRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setPoll({ id: docSnap.id, ...data });
 
-        if (data.currentQuestionIndex !== currentQIndex) {
-          setCurrentQIndex(data.currentQuestionIndex);
-          setHasVotedForCurrent(false);
-          setLastResult(null);
-          setStartTime(Date.now());
+        const newQIndex = data.currentQuestionIndex ?? 0;
+        if (newQIndex !== currentQIndex) {
+          setCurrentQIndex(newQIndex);
+          
+          // Bu soruya daha önce oy verdik mi kontrol et
+          const voteKey = `${pollId}_${newQIndex}`;
+          const hasVoted = votedQuestionsRef.current.has(voteKey) || 
+                          cacheUtils.get(`voted_${voteKey}`);
+          
+          setHasVotedForCurrent(hasVoted);
+          if (!hasVoted) {
+            setLastResult(null);
+            setStartTime(Date.now());
+            setOpenAnswer('');
+          }
         }
       }
+    }, (error) => {
+      console.error('Poll listener error:', error);
     });
-  }, [pollId, currentQIndex]);
+  }, [pollId]); // currentQIndex bağımlılığı kaldırıldı - gereksiz re-subscribe önlendi
 
-  const handleStart = (e) => {
+  const handleStart = useCallback((e) => {
     e.preventDefault();
     if (userName.trim()) {
       localStorage.setItem('voterName', userName);
       setStep('vote');
     }
-  };
+  }, [userName]);
 
-  const handleVote = async (optionIndex) => {
+  // Optimize edilmiş oy gönderme - Transaction kullanarak atomik güncelleme
+  const handleVote = useCallback(async (optionIndex) => {
     if (isSubmitting || hasVotedForCurrent) return;
     setIsSubmitting(true);
     
@@ -56,66 +77,113 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
       ? optionIndex === currentQuestion.correctOptionIndex 
       : null;
     const responseTime = Date.now() - startTime;
+    const voteKey = `${pollId}_${currentQIndex}`;
 
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes'), {
-        questionIndex: currentQIndex,
-        optionIndex: optionIndex,
-        userId: user.uid,
-        userName: userName,
-        isCorrect: isCorrect,
-        timestamp: serverTimestamp()
-      });
+      // Optimistik UI güncelleme
+      setHasVotedForCurrent(true);
+      setLastResult(typeConfig.hasCorrectAnswer ? (isCorrect ? 'correct' : 'wrong') : 'voted');
+      votedQuestionsRef.current.add(voteKey);
+      cacheUtils.set(`voted_${voteKey}`, true, 3600000); // 1 saat cache
 
+      // Paralel yazma işlemleri
+      const writePromises = [];
+      
+      // Vote kaydı - basitleştirilmiş
+      writePromises.push(
+        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes'), {
+          qi: currentQIndex, // Kısa alan adı - bant genişliği tasarrufu
+          oi: optionIndex,
+          uid: user.uid,
+          un: userName,
+          c: isCorrect,
+          ts: serverTimestamp()
+        })
+      );
+
+      // Aggregated vote güncelleme - poll document'ına
+      const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+      writePromises.push(
+        runTransaction(db, async (transaction) => {
+          const pollDoc = await transaction.get(pollRef);
+          if (!pollDoc.exists()) return;
+          
+          const pollData = pollDoc.data();
+          const voteCounts = pollData.voteCounts || {};
+          const qKey = `q${currentQIndex}`;
+          
+          if (!voteCounts[qKey]) voteCounts[qKey] = {};
+          voteCounts[qKey][`o${optionIndex}`] = (voteCounts[qKey][`o${optionIndex}`] || 0) + 1;
+          voteCounts[qKey].total = (voteCounts[qKey].total || 0) + 1;
+          
+          transaction.update(pollRef, { voteCounts });
+        })
+      );
+
+      // Skor güncelleme
       if (typeConfig.hasCorrectAnswer) {
         const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', userName);
-        await setDoc(scoreRef, {
-          score: increment(isCorrect ? 100 : 0),
-          totalTime: increment(responseTime)
-        }, { merge: true });
+        writePromises.push(
+          setDoc(scoreRef, {
+            score: increment(isCorrect ? 100 : 0),
+            totalTime: increment(responseTime)
+          }, { merge: true })
+        );
       }
 
-      setLastResult(typeConfig.hasCorrectAnswer ? (isCorrect ? 'correct' : 'wrong') : 'voted');
-      setHasVotedForCurrent(true);
+      await Promise.all(writePromises);
       setIsSubmitting(false);
 
     } catch (error) {
-      console.error(error);
+      console.error('Vote error:', error);
+      // Rollback optimistik güncelleme
+      setHasVotedForCurrent(false);
+      setLastResult(null);
+      votedQuestionsRef.current.delete(voteKey);
+      cacheUtils.clear(`voted_${voteKey}`);
       if(showToast) showToast("Oy gönderilirken hata oluştu.", "error");
       setIsSubmitting(false);
     }
-  };
+  }, [poll, currentQIndex, isSubmitting, hasVotedForCurrent, user, userName, startTime, pollId, showToast]);
 
-  // Açık uçlu soru için cevap gönderme
-  const handleOpenAnswer = async () => {
+  // Açık uçlu soru için optimize edilmiş cevap gönderme
+  const handleOpenAnswer = useCallback(async () => {
     if (isSubmitting || hasVotedForCurrent || !openAnswer.trim()) return;
     setIsSubmitting(true);
     
     const currentQuestion = poll.questions[currentQIndex];
-    const responseTime = Date.now() - startTime;
+    const voteKey = `${pollId}_${currentQIndex}`;
 
     try {
+      // Optimistik UI güncelleme
+      setHasVotedForCurrent(true);
+      setLastResult('submitted');
+      votedQuestionsRef.current.add(voteKey);
+      cacheUtils.set(`voted_${voteKey}`, true, 3600000);
+
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes'), {
-        questionIndex: currentQIndex,
-        questionType: 'open',
-        answer: openAnswer.trim(),
-        userId: user.uid,
-        userName: userName,
-        timestamp: serverTimestamp(),
-        points: currentQuestion.points || 10 // Değerlendirilecek puan
+        qi: currentQIndex,
+        qt: 'open',
+        ans: openAnswer.trim(),
+        uid: user.uid,
+        un: userName,
+        ts: serverTimestamp(),
+        pts: currentQuestion.points || 10
       });
 
-      setLastResult('submitted');
-      setHasVotedForCurrent(true);
       setOpenAnswer('');
       setIsSubmitting(false);
 
     } catch (error) {
-      console.error(error);
+      console.error('Open answer error:', error);
+      setHasVotedForCurrent(false);
+      setLastResult(null);
+      votedQuestionsRef.current.delete(voteKey);
+      cacheUtils.clear(`voted_${voteKey}`);
       if(showToast) showToast("Cevap gönderilirken hata oluştu.", "error");
       setIsSubmitting(false);
     }
-  };
+  }, [poll, currentQIndex, isSubmitting, hasVotedForCurrent, openAnswer, user, userName, pollId, showToast]);
 
   if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600"/></div>;
 
@@ -144,7 +212,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
 
   // Bekleme / Sonuç Ekranı
   if (hasVotedForCurrent) {
-    // Anket veya açık uçlu soru
     if (lastResult === 'voted' || lastResult === 'submitted') {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center bg-indigo-500">
@@ -208,7 +275,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
           <span className="text-red-500 text-xs font-bold animate-pulse">CANLI</span>
         </div>
         
-        {/* Soru metni - KaTeX destekli */}
         <div className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-900">
           {isExam && activeQuestion.text.includes('$') ? (
             <KatexRenderer text={activeQuestion.text} />
@@ -219,7 +285,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
       </div>
       
       <div className="flex-1 p-4 sm:p-6 space-y-2 sm:space-y-3">
-        {/* Açık uçlu soru */}
         {isOpenQuestion ? (
           <div className="space-y-4">
             <textarea
@@ -230,7 +295,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
               className="w-full p-4 rounded-xl border-2 border-slate-200 bg-white text-base text-slate-700 focus:border-rose-400 outline-none resize-none"
             />
             
-            {/* KaTeX önizleme */}
             {openAnswer && openAnswer.includes('$') && (
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
                 <div className="text-[10px] uppercase text-rose-400 font-bold mb-2">Formül Önizleme</div>
@@ -256,7 +320,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
             </button>
           </div>
         ) : (
-          /* Çoktan seçmeli soru */
           activeQuestion.options.map((opt, idx) => (
             <button
               key={idx}
@@ -264,7 +327,6 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
               disabled={isSubmitting}
               className="w-full p-3 sm:p-4 lg:p-5 rounded-xl border-2 border-slate-200 bg-white text-left font-bold text-base sm:text-lg text-slate-700 hover:border-indigo-500 hover:shadow-lg transition-all active:scale-[0.98]"
             >
-              {/* Seçenek metni - KaTeX destekli */}
               {isExam && opt.text.includes('$') ? (
                 <KatexRenderer text={opt.text} />
               ) : (
@@ -277,4 +339,3 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
     </div>
   );
 }
-
