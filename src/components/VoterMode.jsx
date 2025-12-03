@@ -5,11 +5,11 @@ import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import KatexRenderer from './KatexRenderer';
 import { cacheUtils } from '../utils/performanceUtils';
 
-export default function VoterMode({ pollId, onExit, user, showToast }) {
+export default function VoterMode({ pollId, onExit, user, showToast, preloadedPoll = null }) {
   const [step, setStep] = useState('name'); 
   const [userName, setUserName] = useState('');
-  const [poll, setPoll] = useState(null);
-  const [currentQIndex, setCurrentQIndex] = useState(-1);
+  const [poll, setPoll] = useState(preloadedPoll); // Preloaded veri varsa kullan
+  const [currentQIndex, setCurrentQIndex] = useState(preloadedPoll?.currentQuestionIndex ?? -1);
   
   const [hasVotedForCurrent, setHasVotedForCurrent] = useState(false);
   const [startTime, setStartTime] = useState(Date.now()); 
@@ -20,13 +20,16 @@ export default function VoterMode({ pollId, onExit, user, showToast }) {
   // Optimizasyon: Oy verilen soruları takip et
   const votedQuestionsRef = useRef(new Set());
 
-  // Poll dinleyici - optimize edildi
+  // Kullanıcı adını localStorage'dan yükle - sadece bir kez
   useEffect(() => {
     const savedName = localStorage.getItem('voterName');
     if (savedName) setUserName(savedName);
+  }, []);
+
+  // Poll dinleyici - optimize edildi
+  useEffect(() => {
     if (!pollId) return;
 
-    // Sadece gerekli alanları dinle
     const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
     
     return onSnapshot(pollRef, (docSnap) => {

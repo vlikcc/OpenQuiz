@@ -1,19 +1,56 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useCallback } from 'react';
 import { signInAnonymously, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, collection, getDoc, onSnapshot } from 'firebase/firestore';
 import { Trophy, Loader2, CheckCircle2, AlertTriangle, LogOut, Shield, Settings } from 'lucide-react';
 
 // Config ve sabitler
-import { auth, db, googleProvider, appId, ADMIN_EMAILS } from './config/firebase';
+import { auth, db, googleProvider, appId, ADMIN_EMAILS, CONTENT_TYPES } from './config/firebase';
 
-// Lazy loaded components
+// URL parametrelerini kontrol et (QR ile gelenler için) - en başta
+const urlParams = new URLSearchParams(window.location.search);
+const isVoterMode = urlParams.get('mode') === 'voter' && urlParams.get('id');
+const initialPollId = urlParams.get('id');
+
+// VoterMode için eager loading - QR ile gelenlere hızlı yükleme
+const VoterMode = isVoterMode 
+  ? lazy(() => import(/* webpackPrefetch: true */ './components/VoterMode'))
+  : lazy(() => import('./components/VoterMode'));
+
+// Diğer lazy loaded components
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const PresenterMode = lazy(() => import('./components/PresenterMode'));
-const VoterMode = lazy(() => import('./components/VoterMode'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
-// Loading fallback
+// QR ile gelenler için VoterMode'u hemen preload et
+if (isVoterMode) {
+  import('./components/VoterMode');
+}
+
+// Özel Loading Screen - Voter modu için
+const VoterLoadingScreen = ({ pollData }) => (
+  <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-6">
+    <div className="text-center">
+      {pollData ? (
+        <>
+          <div className="text-6xl mb-4">{CONTENT_TYPES[pollData.type]?.icon || '🎯'}</div>
+          <h1 className="text-2xl font-bold mb-2">{pollData.title}</h1>
+          <p className="text-indigo-200 mb-6">{pollData.questions?.length || 0} soru</p>
+        </>
+      ) : (
+        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Trophy size={32} />
+        </div>
+      )}
+      <div className="flex items-center justify-center gap-3">
+        <Loader2 className="animate-spin" size={24} />
+        <span className="text-lg font-medium">Hazırlanıyor...</span>
+      </div>
+    </div>
+  </div>
+);
+
+// Genel Loading fallback
 const LoadingScreen = () => (
   <div className="h-screen flex items-center justify-center bg-slate-50">
     <div className="text-center">
@@ -41,10 +78,7 @@ export default function QuizApp() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [authorizedUsers, setAuthorizedUsers] = useState([]);
-  
-  // URL parametrelerini kontrol et (QR ile gelenler için)
-  const urlParams = new URLSearchParams(window.location.search);
-  const isVoterMode = urlParams.get('mode') === 'voter' && urlParams.get('id');
+  const [preloadedPoll, setPreloadedPoll] = useState(null);
   
   const [view, setView] = useState(() => {
     if (isVoterMode) return 'voter';
@@ -52,17 +86,33 @@ export default function QuizApp() {
   });
   
   const [activePollId, setActivePollId] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('id')) return params.get('id');
+    if (initialPollId) return initialPollId;
     return localStorage.getItem('activePollId') || null;
   });
   
   const [toast, setToast] = useState(null);
 
+  // QR ile gelenler için paralel yükleme - Auth + Poll verisi aynı anda
+  useEffect(() => {
+    if (!isVoterMode || !initialPollId) return;
+    
+    // Poll verisini hemen çek (auth beklemeden)
+    const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', initialPollId);
+    getDoc(pollRef).then((docSnap) => {
+      if (docSnap.exists()) {
+        setPreloadedPoll({ id: docSnap.id, ...docSnap.data() });
+      }
+    }).catch(console.error);
+    
+    // Anonymous auth'u başlat
+    signInAnonymously(auth).catch(console.error);
+  }, []);
+
   // Auth state listener
   useEffect(() => {
-    if (isVoterMode) {
-      signInAnonymously(auth).catch(console.error);
+    // Normal modda (voter değil) anonymous auth yapma
+    if (!isVoterMode) {
+      // Auth zaten başladıysa tekrar başlatma
     }
     
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -88,7 +138,7 @@ export default function QuizApp() {
     });
     
     return () => unsubscribe();
-  }, [isVoterMode]);
+  }, []);
 
   // Yetkili kullanıcıları dinle (admin için)
   useEffect(() => {
@@ -108,16 +158,16 @@ export default function QuizApp() {
     if (activePollId) localStorage.setItem('activePollId', activePollId);
   }, [view, activePollId]);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
 
-  const navigate = (newView, id = null) => {
+  const navigate = useCallback((newView, id = null) => {
     if (id) setActivePollId(id);
     setView(newView);
     window.history.pushState({}, '', '/');
-  };
+  }, []);
 
   const handleGoogleLogin = async () => {
     try {
@@ -139,17 +189,23 @@ export default function QuizApp() {
     }
   };
 
-  // Yükleniyor
-  if (authLoading) return <LoadingScreen />;
-
-  // Katılımcı modu - giriş gerektirmez
+  // Katılımcı modu için özel yükleme - Auth bekleniyor ama UI hemen göster
   if (isVoterMode && view === 'voter' && activePollId) {
-    if (!user) return <LoadingScreen />;
+    // Auth hala yükleniyor - güzel loading ekranı göster
+    if (authLoading || !user) {
+      return <VoterLoadingScreen pollData={preloadedPoll} />;
+    }
     
     return (
       <ErrorBoundary>
-        <Suspense fallback={<LoadingScreen />}>
-          <VoterMode pollId={activePollId} onExit={() => {}} user={user} showToast={showToast} />
+        <Suspense fallback={<VoterLoadingScreen pollData={preloadedPoll} />}>
+          <VoterMode 
+            pollId={activePollId} 
+            onExit={() => {}} 
+            user={user} 
+            showToast={showToast}
+            preloadedPoll={preloadedPoll}
+          />
         </Suspense>
         {toast && (
           <div className={`fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
@@ -160,6 +216,9 @@ export default function QuizApp() {
       </ErrorBoundary>
     );
   }
+
+  // Normal mod için auth yüklemesi
+  if (authLoading) return <LoadingScreen />;
 
   // Yönetim paneli için giriş gerekli - Landing Page göster
   if (!user || !user.email) {
