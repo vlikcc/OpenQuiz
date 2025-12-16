@@ -1,10 +1,10 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { 
-  collection, addDoc, doc, deleteDoc, onSnapshot, 
-  serverTimestamp, query, orderBy, where 
+import {
+  collection, addDoc, doc, deleteDoc, onSnapshot,
+  serverTimestamp, query, orderBy, where, setDoc
 } from 'firebase/firestore';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
-import { Plus, Trash2, Smartphone, XCircle, Users, AlertTriangle, Copy, QrCode, Upload, Loader2, BookOpen } from 'lucide-react';
+import { Plus, Trash2, Smartphone, XCircle, Users, AlertTriangle, Copy, QrCode, Upload, Loader2, BookOpen, Edit2, Image as ImageIcon, Timer } from 'lucide-react';
 import QrModal from './QrModal';
 import KatexRenderer, { KatexEditor, KATEX_EXAMPLES, MARKDOWN_EXAMPLES } from './KatexRenderer';
 
@@ -13,15 +13,16 @@ const FileImport = lazy(() => import('./FileImport'));
 export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuthorized }) {
   const [polls, setPolls] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
-  const [qrPoll, setQrPoll] = useState(null); 
+  const [editingPollId, setEditingPollId] = useState(null); // Düzenlenen anket ID'si
+  const [qrPoll, setQrPoll] = useState(null);
   const [showFileImport, setShowFileImport] = useState(false);
-  
+
   const canCreateQuiz = isAdmin || isAuthorized;
-  
+
   const [contentType, setContentType] = useState('contest');
   const [quizTitle, setQuizTitle] = useState("");
   const [questions, setQuestions] = useState([
-    { text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', correctAnswer: '' }
+    { text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', correctAnswer: '', image: '', timeLimit: 30 }
   ]);
   const [showKatexHelp, setShowKatexHelp] = useState(false);
 
@@ -46,7 +47,7 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
         orderBy('createdAt', 'desc')
       );
     }
-    
+
     return onSnapshot(q, (snapshot) => {
       setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
@@ -64,18 +65,18 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
 
   const addQuestion = (qType = 'multiple') => {
     if (qType === 'open') {
-      setQuestions([...questions, { text: "", questionType: 'open', correctAnswer: '', points: 10 }]);
+      setQuestions([...questions, { text: "", questionType: 'open', correctAnswer: '', points: 10, image: '', timeLimit: 30 }]);
     } else {
-      setQuestions([...questions, { text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple' }]);
+      setQuestions([...questions, { text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', image: '', timeLimit: 30 }]);
     }
   };
 
   const updateQuestionType = (index, qType) => {
     const newQ = [...questions];
     if (qType === 'open') {
-      newQ[index] = { text: newQ[index].text, questionType: 'open', correctAnswer: '', points: 10 };
+      newQ[index] = { text: newQ[index].text, questionType: 'open', correctAnswer: '', points: 10, image: newQ[index].image, timeLimit: newQ[index].timeLimit || 30 };
     } else {
-      newQ[index] = { text: newQ[index].text, questionType: 'multiple', options: ["", ""], correctIndex: 0 };
+      newQ[index] = { text: newQ[index].text, questionType: 'multiple', options: ["", ""], correctIndex: 0, image: newQ[index].image, timeLimit: newQ[index].timeLimit || 30 };
     }
     setQuestions(newQ);
   };
@@ -105,6 +106,18 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
     setQuestions(newQ);
   };
 
+  const updateQuestionImage = (index, val) => {
+    const newQ = [...questions];
+    newQ[index].image = val;
+    setQuestions(newQ);
+  };
+
+  const updateQuestionTime = (index, val) => {
+    const newQ = [...questions];
+    newQ[index].timeLimit = parseInt(val) || 30;
+    setQuestions(newQ);
+  };
+
   const updateOption = (qIndex, oIndex, val) => {
     const newQ = [...questions];
     newQ[qIndex].options[oIndex] = val;
@@ -126,9 +139,9 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
   const handleCreateQuiz = async (e) => {
     e.preventDefault();
     const typeConfig = CONTENT_TYPES[contentType];
-    
+
     if (!quizTitle.trim()) return showToast("Başlık giriniz", "error");
-    
+
     // Sınav modu için validasyon
     if (contentType === 'exam') {
       for (const q of questions) {
@@ -150,48 +163,102 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
           return {
             id: idx,
             text: q.text,
+            image: q.image || '',
+            timeLimit: q.timeLimit || 30,
             questionType: 'open',
             correctAnswer: q.correctAnswer || '',
             points: q.points || 10
           };
         }
-        
+
         // Çoktan seçmeli soru
         return {
           id: idx,
           text: q.text,
+          image: q.image || '',
+          timeLimit: q.timeLimit || 30,
           questionType: 'multiple',
+          allowMultiple: q.allowMultiple || false,
           options: q.options.map((optText, optIdx) => ({ id: optIdx, text: optText })),
           ...(typeConfig.hasCorrectAnswer && { correctOptionIndex: parseInt(q.correctIndex) }),
           ...(contentType === 'exam' && { points: q.points || 10 })
         };
       });
 
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls'), {
+      const pollData = {
         title: quizTitle,
         type: contentType,
         questions: formattedQuestions,
-        currentQuestionIndex: 0, 
-        isActive: false, 
-        createdAt: serverTimestamp(),
-        creatorId: user.uid,
-        creatorEmail: user.email,
-      });
+        // Diğer alanlar oluşturma sırasında ekleniyor, güncellemede bunlara dokunmuyoruz (örn: createdAt)
+        ...(editingPollId ? {
+          updatedAt: serverTimestamp()
+        } : {
+          currentQuestionIndex: 0,
+          isActive: false,
+          createdAt: serverTimestamp(),
+          creatorId: user.uid,
+          creatorEmail: user.email,
+        })
+      };
+
+      if (editingPollId) {
+        // Güncelleme
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'polls', editingPollId), pollData, { merge: true });
+        showToast(`${typeConfig.label} güncellendi!`);
+      } else {
+        // Yeni oluşturma
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls'), pollData);
+        showToast(`${typeConfig.label} oluşturuldu!`);
+      }
 
       setIsCreating(false);
+      setEditingPollId(null);
       setContentType('contest');
       setQuizTitle("");
-      setQuestions([{ text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', correctAnswer: '' }]);
-      showToast(`${typeConfig.label} oluşturuldu!`);
+      setQuestions([{ text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', correctAnswer: '', image: '', timeLimit: 30 }]);
     } catch (error) {
       console.error(error);
       showToast("Hata oluştu", "error");
     }
   };
 
+  const handleEditPoll = (poll) => {
+    setIsCreating(true);
+    setEditingPollId(poll.id);
+    setContentType(poll.type || 'contest');
+    setQuizTitle(poll.title);
+
+    // Soruları formata uygun hale getir
+    const formattedQuestions = (poll.questions || []).map(q => {
+      if (q.questionType === 'open') {
+        return {
+          text: q.text,
+          questionType: 'open',
+          correctAnswer: q.correctAnswer || '',
+          points: q.points || 10,
+          image: q.image || '',
+          timeLimit: q.timeLimit || 30
+        };
+      }
+
+      return {
+        text: q.text,
+        questionType: 'multiple',
+        allowMultiple: q.allowMultiple || false,
+        options: q.options.map(o => o.text || o), // options string[] veya object[] olabilir
+        correctIndex: q.correctOptionIndex || 0,
+        points: q.points || 10,
+        image: q.image || '',
+        timeLimit: q.timeLimit || 30
+      };
+    });
+
+    setQuestions(formattedQuestions.length > 0 ? formattedQuestions : [{ text: "", options: ["", ""], correctIndex: 0, questionType: 'multiple', correctAnswer: '' }]);
+  };
+
   const handleDeletePoll = async (poll) => {
     const canDelete = isAdmin || poll.creatorEmail === user.email;
-    
+
     if (!canDelete) {
       showToast("Bu yarışmayı silme yetkiniz yok", "error");
       return;
@@ -213,7 +280,7 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
       {qrPoll && (
         <QrModal pollId={qrPoll.id} title={qrPoll.title} onClose={() => setQrPoll(null)} />
       )}
-      
+
       {showFileImport && (
         <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"><Loader2 className="animate-spin text-white" size={40} /></div>}>
           <FileImport onImport={handleImportQuestions} onClose={() => setShowFileImport(false)} />
@@ -226,10 +293,10 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
             {isAdmin ? 'Tüm Yarışmalar' : 'Yarışmalarım'}
           </h1>
           <p className="text-slate-500 text-sm sm:text-base">
-            {isAdmin 
+            {isAdmin
               ? 'Tüm yarışmaları görüntüleyebilir ve yönetebilirsiniz.'
-              : canCreateQuiz 
-                ? 'Kendi yarışmalarınızı oluşturun ve yönetin.' 
+              : canCreateQuiz
+                ? 'Kendi yarışmalarınızı oluşturun ve yönetin.'
                 : 'Yarışmalara katılabilir ve sonuçları görüntüleyebilirsiniz.'
             }
           </p>
@@ -262,9 +329,9 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
         <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-2xl shadow-xl border border-indigo-50 animate-in fade-in slide-in-from-top-4 max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-4 sm:mb-6 border-b pb-4">
             <h2 className="text-lg sm:text-xl font-bold text-slate-800">
-              {CONTENT_TYPES[contentType].icon} {CONTENT_TYPES[contentType].label} Oluştur
+              {CONTENT_TYPES[contentType].icon} {CONTENT_TYPES[contentType].label} {editingPollId ? 'Düzenle' : 'Oluştur'}
             </h2>
-            <button onClick={() => setIsCreating(false)} className="text-slate-400 hover:text-slate-600"><XCircle size={22} /></button>
+            <button onClick={() => { setIsCreating(false); setEditingPollId(null); }} className="text-slate-400 hover:text-slate-600"><XCircle size={22} /></button>
           </div>
 
           <div className={`mb-6 p-4 rounded-xl bg-${CONTENT_TYPES[contentType].color}-50 border border-${CONTENT_TYPES[contentType].color}-200`}>
@@ -279,19 +346,19 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
 
           <div className="mb-6 sm:mb-8">
             <label className="block text-sm font-bold text-slate-700 mb-2">Başlık</label>
-            <input 
-              type="text" 
-              value={quizTitle} 
-              onChange={(e) => setQuizTitle(e.target.value)} 
-              className="w-full p-3 sm:p-4 text-base sm:text-lg border-2 border-slate-200 rounded-xl focus:border-indigo-500 outline-none" 
-              placeholder={`Örn: ${contentType === 'survey' ? 'Memnuniyet Anketi' : contentType === 'quiz' ? 'Günün Sorusu' : 'Genel Kültür Yarışması'}`} 
+            <input
+              type="text"
+              value={quizTitle}
+              onChange={(e) => setQuizTitle(e.target.value)}
+              className="w-full p-3 sm:p-4 text-base sm:text-lg border-2 border-slate-200 rounded-xl focus:border-indigo-500 outline-none"
+              placeholder={`Örn: ${contentType === 'survey' ? 'Memnuniyet Anketi' : contentType === 'quiz' ? 'Günün Sorusu' : 'Genel Kültür Yarışması'}`}
             />
           </div>
 
           {/* Sınav modu için Format Yardımı */}
           {contentType === 'exam' && (
             <div className="mb-6">
-              <button 
+              <button
                 type="button"
                 onClick={() => setShowKatexHelp(!showKatexHelp)}
                 className="flex items-center gap-2 text-rose-600 hover:text-rose-700 font-medium text-sm"
@@ -299,7 +366,7 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                 <BookOpen size={16} />
                 {showKatexHelp ? 'Format Yardımını Gizle' : 'Format Yardımı (KaTeX + Markdown)'}
               </button>
-              
+
               {showKatexHelp && (
                 <div className="mt-3 space-y-4">
                   {/* KaTeX Örnekleri */}
@@ -357,8 +424,8 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                   {contentType === 'exam' && (
                     <div className="flex items-center gap-1 bg-white rounded-lg px-2 py-1 border border-slate-200">
                       <span className="text-xs text-slate-500">Puan:</span>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={q.points || 10}
                         onChange={(e) => updatePoints(qIndex, e.target.value)}
                         className="w-12 text-center text-sm font-bold text-rose-600 outline-none"
@@ -366,45 +433,78 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                       />
                     </div>
                   )}
-                  <button onClick={() => removeQuestion(qIndex)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20}/></button>
+                  <button onClick={() => removeQuestion(qIndex)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button>
                 </div>
-                
+
                 {/* Sınav modu - soru tipi seçimi */}
                 {contentType === 'exam' && (
                   <div className="flex gap-2 mb-4">
                     <button
                       type="button"
                       onClick={() => updateQuestionType(qIndex, 'multiple')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        q.questionType !== 'open' 
-                          ? 'bg-rose-600 text-white' 
-                          : 'bg-white border border-slate-200 text-slate-600 hover:border-rose-300'
-                      }`}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${q.questionType !== 'open'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:border-rose-300'
+                        }`}
                     >
                       📋 Çoktan Seçmeli
                     </button>
                     <button
                       type="button"
                       onClick={() => updateQuestionType(qIndex, 'open')}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        q.questionType === 'open' 
-                          ? 'bg-rose-600 text-white' 
-                          : 'bg-white border border-slate-200 text-slate-600 hover:border-rose-300'
-                      }`}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${q.questionType === 'open'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:border-rose-300'
+                        }`}
                     >
                       ✏️ Açık Uçlu
                     </button>
                   </div>
                 )}
-                
+
                 <div className="mb-4">
+                  <div className="flex gap-4 mb-3">
+                    <div className="flex-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                        <ImageIcon size={14} /> Görsel URL (Opsiyonel)
+                      </label>
+                      <input
+                        type="text"
+                        value={q.image || ''}
+                        onChange={(e) => updateQuestionImage(qIndex, e.target.value)}
+                        className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-indigo-500"
+                        placeholder="https://ornek.com/resim.jpg"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                        <Timer size={14} /> Süre (sn)
+                      </label>
+                      <input
+                        type="number"
+                        value={q.timeLimit || 30}
+                        onChange={(e) => updateQuestionTime(qIndex, e.target.value)}
+                        className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-indigo-500 text-center font-bold"
+                        min="5"
+                        max="300"
+                      />
+                    </div>
+                  </div>
+
+                  {q.image && (
+                    <div className="mb-3 relative group w-fit">
+                      <img src={q.image} alt="Önizleme" className="h-32 rounded-lg border border-slate-200 object-cover" onError={(e) => e.target.style.display = 'none'} />
+                      <button onClick={() => updateQuestionImage(qIndex, '')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><XCircle size={16} /></button>
+                    </div>
+                  )}
+
                   <label className="block text-xs font-bold text-indigo-600 uppercase mb-1">
                     Soru {qIndex + 1}
                     {contentType === 'exam' && q.questionType === 'open' && (
                       <span className="ml-2 text-rose-500">(Açık Uçlu)</span>
                     )}
                   </label>
-                  
+
                   {/* Sınav modu için KaTeX destekli editör */}
                   {contentType === 'exam' ? (
                     <KatexEditor
@@ -414,16 +514,16 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                       rows={3}
                     />
                   ) : (
-                    <input 
-                      type="text" 
-                      value={q.text} 
+                    <input
+                      type="text"
+                      value={q.text}
                       onChange={(e) => updateQuestionText(qIndex, e.target.value)}
                       className="w-full p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none font-medium"
-                      placeholder="Soru metnini giriniz..." 
+                      placeholder="Soru metnini giriniz..."
                     />
                   )}
                 </div>
-                
+
                 {/* Açık uçlu soru için cevap alanı */}
                 {contentType === 'exam' && q.questionType === 'open' ? (
                   <div className="space-y-4">
@@ -440,51 +540,72 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                   </div>
                 ) : (
                   /* Çoktan seçmeli seçenekler */
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {q.options && q.options.map((opt, oIndex) => (
-                      <div key={oIndex} className={`flex items-center gap-2 p-2 rounded-lg border-2 bg-white ${CONTENT_TYPES[contentType].hasCorrectAnswer && q.correctIndex === oIndex ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-transparent'}`}>
-                        {CONTENT_TYPES[contentType].hasCorrectAnswer ? (
-                          <input 
-                            type="radio" 
-                            name={`correct-${qIndex}`} 
-                            checked={q.correctIndex === oIndex} 
-                            onChange={() => setCorrectOption(qIndex, oIndex)}
-                            className="w-5 h-5 accent-emerald-600 cursor-pointer"
-                          />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-500 font-bold">{oIndex + 1}</div>
-                        )}
-                        {contentType === 'exam' ? (
-                          <div className="flex-1">
-                            <input 
-                              type="text" 
-                              value={opt} 
-                              onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
-                              className="w-full p-2 outline-none text-sm font-mono"
-                              placeholder={`Seçenek ${oIndex + 1} (KaTeX: $x^2$)`}
-                            />
-                            {opt && opt.includes('$') && (
-                              <div className="text-xs text-slate-500 mt-1 pl-2 border-l-2 border-rose-200">
-                                <KatexRenderer text={opt} />
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <input 
-                            type="text" 
-                            value={opt} 
-                            onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
-                            className="w-full p-2 outline-none text-sm"
-                            placeholder={`Seçenek ${oIndex + 1}`}
-                          />
-                        )}
+                  <div className="space-y-4">
+                    {contentType === 'survey' && (
+                      <div className="flex items-center gap-2 mb-2 bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                        <input
+                          type="checkbox"
+                          id={`multi-${qIndex}`}
+                          checked={q.allowMultiple || false}
+                          onChange={(e) => {
+                            const newQ = [...questions];
+                            newQ[qIndex].allowMultiple = e.target.checked;
+                            setQuestions(newQ);
+                          }}
+                          className="w-5 h-5 accent-emerald-600 cursor-pointer"
+                        />
+                        <label htmlFor={`multi-${qIndex}`} className="text-sm font-medium text-emerald-800 cursor-pointer select-none">
+                          Birden fazla seçenek seçilebilir
+                        </label>
                       </div>
-                    ))}
-                    {q.options && (
-                      <button type="button" onClick={() => addOption(qIndex)} className="flex items-center justify-center gap-2 p-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors text-sm font-medium">
-                        <Plus size={16} /> Seçenek Ekle
-                      </button>
                     )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {q.options && q.options.map((opt, oIndex) => (
+                        <div key={oIndex} className={`flex items-center gap-2 p-2 rounded-lg border-2 bg-white ${CONTENT_TYPES[contentType].hasCorrectAnswer && q.correctIndex === oIndex ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-transparent'}`}>
+                          {CONTENT_TYPES[contentType].hasCorrectAnswer ? (
+                            <input
+                              type="radio"
+                              name={`correct-${qIndex}`}
+                              checked={q.correctIndex === oIndex}
+                              onChange={() => setCorrectOption(qIndex, oIndex)}
+                              className="w-5 h-5 accent-emerald-600 cursor-pointer"
+                            />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-500 font-bold">{oIndex + 1}</div>
+                          )}
+                          {contentType === 'exam' ? (
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
+                                className="w-full p-2 outline-none text-sm font-mono"
+                                placeholder={`Seçenek ${oIndex + 1} (KaTeX: $x^2$)`}
+                              />
+                              {opt && opt.includes('$') && (
+                                <div className="text-xs text-slate-500 mt-1 pl-2 border-l-2 border-rose-200">
+                                  <KatexRenderer text={opt} />
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
+                              className="w-full p-2 outline-none text-sm"
+                              placeholder={`Seçenek ${oIndex + 1}`}
+                            />
+                          )}
+                        </div>
+                      ))}
+                      {q.options && (
+                        <button type="button" onClick={() => addOption(qIndex)} className="flex items-center justify-center gap-2 p-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors text-sm font-medium">
+                          <Plus size={16} /> Seçenek Ekle
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -516,20 +637,20 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
               <div className="text-sm text-slate-400 italic">Quiz tek soru içerir</div>
             )}
             <div className="flex gap-4 w-full md:w-auto">
-              <button type="button" onClick={() => setIsCreating(false)} className="flex-1 py-3 px-6 text-slate-500 hover:bg-slate-50 rounded-xl font-medium">İptal</button>
+              <button type="button" onClick={() => { setIsCreating(false); setEditingPollId(null); }} className="flex-1 py-3 px-6 text-slate-500 hover:bg-slate-50 rounded-xl font-medium">İptal</button>
               <button onClick={handleCreateQuiz} className={`flex-1 py-3 px-8 text-white rounded-xl font-bold shadow-lg transition-all ${contentType === 'exam' ? 'bg-rose-600 hover:bg-rose-700 hover:shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-indigo-200'}`}>
-                {CONTENT_TYPES[contentType].icon} {CONTENT_TYPES[contentType].label} Kaydet
+                {CONTENT_TYPES[contentType].icon} {CONTENT_TYPES[contentType].label} {editingPollId ? 'Güncelle' : 'Kaydet'}
               </button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6" style={{gridAutoRows: 'minmax(auto, 1fr)'}}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6" style={{ gridAutoRows: 'minmax(auto, 1fr)' }}>
           {polls.map(poll => {
             const canDeleteThisPoll = isAdmin || poll.creatorEmail === user.email;
             const pollType = poll.type || 'contest';
             const typeConfig = CONTENT_TYPES[pollType] || CONTENT_TYPES.contest;
-            
+
             return (
               <div key={poll.id} className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-lg hover:border-slate-300 transition-all flex flex-col h-full group min-h-[220px]">
                 <div className="flex justify-between items-start mb-3 sm:mb-4">
@@ -541,6 +662,11 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                     {canDeleteThisPoll && (
                       <button onClick={() => handleDeletePoll(poll)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Sil">
                         <Trash2 size={16} />
+                      </button>
+                    )}
+                    {canDeleteThisPoll && (
+                      <button onClick={() => handleEditPoll(poll)} className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Düzenle">
+                        <Edit2 size={16} />
                       </button>
                     )}
                   </div>

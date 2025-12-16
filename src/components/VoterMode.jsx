@@ -1,22 +1,25 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment, runTransaction } from 'firebase/firestore';
-import { CheckCircle2, XCircle, Loader2, Send } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Send, Heart, ThumbsUp, PartyPopper, Smile } from 'lucide-react';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import KatexRenderer from './KatexRenderer';
 import { cacheUtils } from '../utils/performanceUtils';
 
 export default function VoterMode({ pollId, onExit, user, showToast, preloadedPoll = null }) {
-  const [step, setStep] = useState('name'); 
+  const [step, setStep] = useState('name');
   const [userName, setUserName] = useState('');
   const [poll, setPoll] = useState(preloadedPoll); // Preloaded veri varsa kullan
   const [currentQIndex, setCurrentQIndex] = useState(preloadedPoll?.currentQuestionIndex ?? -1);
-  
+
   const [hasVotedForCurrent, setHasVotedForCurrent] = useState(false);
-  const [startTime, setStartTime] = useState(Date.now()); 
+  const [startTime, setStartTime] = useState(Date.now());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [openAnswer, setOpenAnswer] = useState('');
-  
+  const [selectedIndices, setSelectedIndices] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
   // Optimizasyon: Oy verilen soruları takip et
   const votedQuestionsRef = useRef(new Set());
 
@@ -31,7 +34,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     if (!pollId) return;
 
     const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
-    
+
     return onSnapshot(pollRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -39,25 +42,48 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
 
         const newQIndex = data.currentQuestionIndex ?? 0;
         if (newQIndex !== currentQIndex) {
+          const currentQ = data.questions?.[newQIndex];
+          if (currentQ) {
+            setTimeLeft(currentQ.timeLimit || 30);
+            setIsTimerRunning(true);
+          }
           setCurrentQIndex(newQIndex);
-          
+
+          // ... (rest of logic) ...
+
           // Bu soruya daha önce oy verdik mi kontrol et
           const voteKey = `${pollId}_${newQIndex}`;
-          const hasVoted = votedQuestionsRef.current.has(voteKey) || 
-                          cacheUtils.get(`voted_${voteKey}`);
-          
+          const hasVoted = votedQuestionsRef.current.has(voteKey) ||
+            cacheUtils.get(`voted_${voteKey}`);
+
           setHasVotedForCurrent(hasVoted);
           if (!hasVoted) {
             setLastResult(null);
             setStartTime(Date.now());
             setOpenAnswer('');
+            setSelectedIndices([]);
           }
         }
       }
     }, (error) => {
       console.error('Poll listener error:', error);
     });
-  }, [pollId]); // currentQIndex bağımlılığı kaldırıldı - gereksiz re-subscribe önlendi
+  }, [pollId, currentQIndex]);
+  // We need currentQIndex in dependency if we use it in comparison? No, inside callback we use `newQIndex` from data.
+  // Actually, we need to setup timer when poll updates.
+
+  // Vote Timer
+  useEffect(() => {
+    let interval;
+    if (isTimerRunning && timeLeft > 0 && !hasVotedForCurrent) {
+      interval = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0) {
+      setIsTimerRunning(false);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning, timeLeft, hasVotedForCurrent]);
 
   const handleStart = useCallback((e) => {
     e.preventDefault();
@@ -67,36 +93,67 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     }
   }, [userName]);
 
-  // Optimize edilmiş oy gönderme - Transaction kullanarak atomik güncelleme
+  // Tekli seçim veya çoklu seçim toggle
   const handleVote = useCallback(async (optionIndex) => {
+    const currentQuestion = poll.questions[currentQIndex];
+    if (currentQuestion.allowMultiple) {
+      if (hasVotedForCurrent) return;
+      setSelectedIndices(prev => {
+        if (prev.includes(optionIndex)) {
+          return prev.filter(i => i !== optionIndex);
+        } else {
+          return [...prev, optionIndex];
+        }
+      });
+      return;
+    }
+
     if (isSubmitting || hasVotedForCurrent) return;
+    submitVote([optionIndex]);
+  }, [poll, currentQIndex, isSubmitting, hasVotedForCurrent]);
+
+  // Çoklu seçim gönderimi
+  const handleSubmitMulti = () => {
+    if (selectedIndices.length === 0 || isSubmitting || hasVotedForCurrent) return;
+    submitVote(selectedIndices);
+  };
+
+  const submitVote = useCallback(async (indices) => {
     setIsSubmitting(true);
-    
+
     const currentQuestion = poll.questions[currentQIndex];
     const pollType = poll.type || 'contest';
     const typeConfig = CONTENT_TYPES[pollType] || CONTENT_TYPES.contest;
-    
-    const isCorrect = typeConfig.hasCorrectAnswer 
-      ? optionIndex === currentQuestion.correctOptionIndex 
-      : null;
+
+    // Doğruluk kontrolü - eğer herhangi bir yanlış varsa yanlış sayılır (veya kısmi puan? Şu an basitlik için: hepsi doğruysa doğru)
+    // Ancak survey modunda doğru/yanlış yok
+
+    let isCorrect = null;
+    if (typeConfig.hasCorrectAnswer) {
+      // Çoklu seçimde doğruluk kontrolü henüz implement edilmedi (basit single choice varsayımı var önceki kodda)
+      // Şimdilik sadece tekli seçim gibi davranıyoruz contest/exam için
+      // Eğer allowMultiple=true ise ve hasCorrectAnswer=true ise, bu mantık iyileştirilmeli.
+      // Şu anki implementasyon sadece Survey (anket) için çoklu seçimi hedefliyor.
+      isCorrect = indices.length === 1 && indices[0] === currentQuestion.correctOptionIndex;
+    }
+
     const responseTime = Date.now() - startTime;
     const voteKey = `${pollId}_${currentQIndex}`;
 
     try {
-      // Optimistik UI güncelleme
       setHasVotedForCurrent(true);
       setLastResult(typeConfig.hasCorrectAnswer ? (isCorrect ? 'correct' : 'wrong') : 'voted');
       votedQuestionsRef.current.add(voteKey);
-      cacheUtils.set(`voted_${voteKey}`, true, 3600000); // 1 saat cache
+      cacheUtils.set(`voted_${voteKey}`, true, 3600000);
 
-      // Paralel yazma işlemleri
       const writePromises = [];
-      
-      // Vote kaydı - basitleştirilmiş
+
+      // Vote kaydı
       writePromises.push(
         addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes'), {
-          qi: currentQIndex, // Kısa alan adı - bant genişliği tasarrufu
-          oi: optionIndex,
+          qi: currentQIndex,
+          oi: indices.length === 1 ? indices[0] : null, // Geriye dönük uyumluluk
+          ois: indices, // Yeni çoklu seçim alanı
           uid: user.uid,
           un: userName,
           c: isCorrect,
@@ -104,26 +161,31 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
         })
       );
 
-      // Aggregated vote güncelleme - poll document'ına
+      // Aggregated update
       const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
       writePromises.push(
         runTransaction(db, async (transaction) => {
           const pollDoc = await transaction.get(pollRef);
           if (!pollDoc.exists()) return;
-          
+
           const pollData = pollDoc.data();
           const voteCounts = pollData.voteCounts || {};
           const qKey = `q${currentQIndex}`;
-          
+
           if (!voteCounts[qKey]) voteCounts[qKey] = {};
-          voteCounts[qKey][`o${optionIndex}`] = (voteCounts[qKey][`o${optionIndex}`] || 0) + 1;
-          voteCounts[qKey].total = (voteCounts[qKey].total || 0) + 1;
-          
+
+          indices.forEach(idx => {
+            voteCounts[qKey][`o${idx}`] = (voteCounts[qKey][`o${idx}`] || 0) + 1;
+          });
+
+          voteCounts[qKey].total = (voteCounts[qKey].total || 0) + 1; // Toplam katılım sayısı (tekil kullanıcı)
+          // Not: Analizde 'toplam oy' seçenek bazlı mı kullanıcı bazlı mı gösterilecek? 
+          // PresenterMode'da toplam oy kullanıcı sayısı olarak gösteriliyor genellikle.
+
           transaction.update(pollRef, { voteCounts });
         })
       );
 
-      // Skor güncelleme
       if (typeConfig.hasCorrectAnswer) {
         const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', userName);
         writePromises.push(
@@ -139,21 +201,34 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
 
     } catch (error) {
       console.error('Vote error:', error);
-      // Rollback optimistik güncelleme
       setHasVotedForCurrent(false);
       setLastResult(null);
       votedQuestionsRef.current.delete(voteKey);
       cacheUtils.clear(`voted_${voteKey}`);
-      if(showToast) showToast("Oy gönderilirken hata oluştu.", "error");
+      if (showToast) showToast("Oy gönderilirken hata oluştu.", "error");
+      showToast("Hata oluştu", "error");
       setIsSubmitting(false);
     }
-  }, [poll, currentQIndex, isSubmitting, hasVotedForCurrent, user, userName, startTime, pollId, showToast]);
+  }, [poll, currentQIndex, selectedIndices, user, userName, startTime, pollId, showToast]);
+
+  const handleReaction = async (emoji) => {
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'reactions'), {
+        emoji,
+        timestamp: serverTimestamp(),
+        sender: userName || 'Anonymous'
+      });
+      // Efekt: Basılan butonda küçük bir animasyon olabilir (opsiyonel)
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   // Açık uçlu soru için optimize edilmiş cevap gönderme
   const handleOpenAnswer = useCallback(async () => {
     if (isSubmitting || hasVotedForCurrent || !openAnswer.trim()) return;
     setIsSubmitting(true);
-    
+
     const currentQuestion = poll.questions[currentQIndex];
     const voteKey = `${pollId}_${currentQIndex}`;
 
@@ -183,18 +258,18 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
       setLastResult(null);
       votedQuestionsRef.current.delete(voteKey);
       cacheUtils.clear(`voted_${voteKey}`);
-      if(showToast) showToast("Cevap gönderilirken hata oluştu.", "error");
+      if (showToast) showToast("Cevap gönderilirken hata oluştu.", "error");
       setIsSubmitting(false);
     }
   }, [poll, currentQIndex, isSubmitting, hasVotedForCurrent, openAnswer, user, userName, pollId, showToast]);
 
-  if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600"/></div>;
+  if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
   // İsim Giriş Ekranı
   if (step === 'name') {
     const pollType = poll.type || 'contest';
     const typeConfig = CONTENT_TYPES[pollType] || CONTENT_TYPES.contest;
-    
+
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="bg-white max-w-sm w-full p-8 rounded-3xl shadow-xl text-center">
@@ -219,7 +294,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center bg-indigo-500">
           <div className="bg-white/20 backdrop-blur-md p-10 rounded-3xl shadow-2xl animate-bounce-in">
-            <CheckCircle2 size={64} className="mx-auto mb-4"/>
+            <CheckCircle2 size={64} className="mx-auto mb-4" />
             <h2 className="text-4xl font-black mb-2">
               {lastResult === 'submitted' ? 'CEVAP GÖNDERİLDİ!' : 'TEŞEKKÜRLER!'}
             </h2>
@@ -227,21 +302,21 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
               {lastResult === 'submitted' ? 'Cevabınız değerlendirilecek' : 'Oyunuz kaydedildi'}
             </p>
             <div className="flex items-center justify-center gap-2 bg-black/20 px-4 py-2 rounded-full text-sm font-medium animate-pulse">
-              <Loader2 size={16} className="animate-spin"/> Sonraki soru için bekle...
+              <Loader2 size={16} className="animate-spin" /> Sonraki soru için bekle...
             </div>
           </div>
         </div>
       );
     }
-    
+
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-white text-center transition-colors ${lastResult === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
         <div className="bg-white/20 backdrop-blur-md p-10 rounded-3xl shadow-2xl animate-bounce-in">
-          {lastResult === 'correct' ? <CheckCircle2 size={64} className="mx-auto mb-4"/> : <XCircle size={64} className="mx-auto mb-4"/>}
+          {lastResult === 'correct' ? <CheckCircle2 size={64} className="mx-auto mb-4" /> : <XCircle size={64} className="mx-auto mb-4" />}
           <h2 className="text-4xl font-black mb-2">{lastResult === 'correct' ? 'DOĞRU!' : 'YANLIŞ'}</h2>
           <p className="text-xl opacity-90 mb-8">{lastResult === 'correct' ? '+100 Puan' : 'Puan alamadın'}</p>
           <div className="flex items-center justify-center gap-2 bg-black/20 px-4 py-2 rounded-full text-sm font-medium animate-pulse">
-            <Loader2 size={16} className="animate-spin"/> Sunucu bir sonraki soruya geçene kadar bekle...
+            <Loader2 size={16} className="animate-spin" /> Sunucu bir sonraki soruya geçene kadar bekle...
           </div>
         </div>
       </div>
@@ -277,16 +352,31 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
           </div>
           <span className="text-red-500 text-xs font-bold animate-pulse">CANLI</span>
         </div>
-        
+
         <div className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-900">
+          {activeQuestion.image && (
+            <div className="mb-4">
+              <img src={activeQuestion.image} alt="Soru" className="max-h-48 rounded-lg shadow-sm mx-auto object-contain" />
+            </div>
+          )}
           {isExam && activeQuestion.text.includes('$') ? (
             <KatexRenderer text={activeQuestion.text} />
           ) : (
             activeQuestion.text
           )}
         </div>
+
+        {/* Progress Bar Timer */}
+        {!hasVotedForCurrent && (
+          <div className="mt-4 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 10 ? 'bg-red-500' : 'bg-indigo-500'}`}
+              style={{ width: `${(timeLeft / (activeQuestion.timeLimit || 30)) * 100}%` }}
+            ></div>
+          </div>
+        )}
       </div>
-      
+
       <div className="flex-1 p-4 sm:p-6 space-y-2 sm:space-y-3">
         {isOpenQuestion ? (
           <div className="space-y-4">
@@ -297,18 +387,18 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
               rows={6}
               className="w-full p-4 rounded-xl border-2 border-slate-200 bg-white text-base text-slate-700 focus:border-rose-400 outline-none resize-none"
             />
-            
+
             {openAnswer && openAnswer.includes('$') && (
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
                 <div className="text-[10px] uppercase text-rose-400 font-bold mb-2">Formül Önizleme</div>
                 <KatexRenderer text={openAnswer} className="text-slate-800" />
               </div>
             )}
-            
+
             <p className="text-xs text-slate-400">
               💡 Matematik formülleri için: $formül$ kullanın (örn: $x^2 + y^2 = z^2$)
             </p>
-            
+
             <button
               onClick={handleOpenAnswer}
               disabled={isSubmitting || !openAnswer.trim()}
@@ -323,21 +413,47 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
             </button>
           </div>
         ) : (
-          activeQuestion.options.map((opt, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleVote(idx)}
-              disabled={isSubmitting}
-              className="w-full p-3 sm:p-4 lg:p-5 rounded-xl border-2 border-slate-200 bg-white text-left font-bold text-base sm:text-lg text-slate-700 hover:border-indigo-500 hover:shadow-lg transition-all active:scale-[0.98]"
-            >
-              {isExam && opt.text.includes('$') ? (
-                <KatexRenderer text={opt.text} />
-              ) : (
-                opt.text
-              )}
-            </button>
-          ))
+          activeQuestion.options.map((opt, idx) => {
+            const isSelected = selectedIndices.includes(idx);
+
+            return (
+              <button
+                key={idx}
+                onClick={() => handleVote(idx)}
+                disabled={isSubmitting || (hasVotedForCurrent && !activeQuestion.allowMultiple)}
+                className={`w-full p-3 sm:p-4 lg:p-5 rounded-xl border-2 text-left font-bold text-base sm:text-lg transition-all active:scale-[0.98] ${isSelected
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md ring-2 ring-indigo-200'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-500 hover:shadow-lg'
+                  }`}
+              >
+                {isExam && opt.text.includes('$') ? (
+                  <KatexRenderer text={opt.text} />
+                ) : (
+                  opt.text
+                )}
+              </button>
+            );
+          })
         )}
+
+        {activeQuestion.allowMultiple && !hasVotedForCurrent && !isOpenQuestion && (
+          <button
+            onClick={handleSubmitMulti}
+            disabled={selectedIndices.length === 0 || isSubmitting}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-4"
+          >
+            {isSubmitting ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
+            Seçimlerimi Gönder ({selectedIndices.length})
+          </button>
+        )}
+      </div>
+
+      {/* Canlı Reaksiyonlar */}
+      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-40">
+        <button onClick={() => handleReaction('❤️')} className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border border-rose-100">❤️</button>
+        <button onClick={() => handleReaction('👍')} className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border border-blue-100">👍</button>
+        <button onClick={() => handleReaction('🎉')} className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border border-amber-100">🎉</button>
+        <button onClick={() => handleReaction('😂')} className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border border-yellow-100">😂</button>
       </div>
     </div>
   );

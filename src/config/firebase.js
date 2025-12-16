@@ -30,36 +30,36 @@ export const COLORS = ['#4F46E5', '#EC4899', '#10B981', '#F59E0B', '#8B5CF6', '#
 
 // İçerik Türleri
 export const CONTENT_TYPES = {
-  contest: { 
-    label: 'Yarışma', 
-    icon: '🏆', 
+  contest: {
+    label: 'Yarışma',
+    icon: '🏆',
     color: 'indigo',
     description: 'Doğru cevaplı sorular, puanlama sistemi',
     hasCorrectAnswer: true,
     multipleQuestions: true,
     questionType: 'multiple'
   },
-  survey: { 
-    label: 'Anket', 
-    icon: '📊', 
+  survey: {
+    label: 'Anket',
+    icon: '📊',
     color: 'emerald',
     description: 'Fikir toplama, doğru cevap yok',
     hasCorrectAnswer: false,
     multipleQuestions: true,
     questionType: 'multiple'
   },
-  quiz: { 
-    label: 'Quiz', 
-    icon: '❓', 
+  quiz: {
+    label: 'Quiz',
+    icon: '❓',
     color: 'amber',
     description: 'Tek sorulu hızlı test',
     hasCorrectAnswer: true,
-    multipleQuestions: false,
+    multipleQuestions: true,
     questionType: 'multiple'
   },
-  exam: { 
-    label: 'Sınav', 
-    icon: '📝', 
+  exam: {
+    label: 'Sınav',
+    icon: '📝',
     color: 'rose',
     description: 'Çoktan seçmeli ve açık uçlu sorular, KaTeX formül desteği',
     hasCorrectAnswer: true,

@@ -73,6 +73,7 @@ class ErrorBoundary extends React.Component {
 
 // Ana Bileşen
 export default function QuizApp() {
+  console.log("App Component Mounting...");
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -136,8 +137,22 @@ export default function QuizApp() {
       
       setAuthLoading(false);
     });
+
+    // Timeout - 5 saniye sonra auth yanıt vermezse loading'i kapat
+    const timer = setTimeout(() => {
+      setAuthLoading((prev) => {
+        if (prev) {
+          console.warn("Auth timeout reached");
+          return false;
+        }
+        return prev;
+      });
+    }, 5000);
     
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   // Yetkili kullanıcıları dinle (admin için)
@@ -164,9 +179,10 @@ export default function QuizApp() {
   }, []);
 
   const navigate = useCallback((newView, id = null) => {
+    console.log("Navigating to:", newView, id);
     if (id) setActivePollId(id);
     setView(newView);
-    window.history.pushState({}, '', '/');
+    // window.history.pushState({}, '', '/'); // Disabled for mobile stability
   }, []);
 
   const handleGoogleLogin = async () => {

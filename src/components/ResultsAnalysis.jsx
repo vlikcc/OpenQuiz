@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
-import { 
-  Trophy, Users, CheckCircle2, XCircle, BarChart3, 
+import {
+  Trophy, Users, CheckCircle2, XCircle, BarChart3,
   Download, FileSpreadsheet, FileText, TrendingUp, Clock
 } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -19,7 +19,15 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
     if (!pollId) return;
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes');
     return onSnapshot(q, (snapshot) => {
-      setVotes(snapshot.docs.map(doc => doc.data()));
+      setVotes(snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          questionIndex: data.qi ?? data.questionIndex,
+          optionIndex: data.oi ?? data.optionIndex,
+          selectedIndices: data.ois ?? (data.oi !== undefined ? [data.oi] : [])
+        };
+      }));
     });
   }, [pollId]);
 
@@ -40,28 +48,33 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
   const analytics = useMemo(() => {
     if (!poll || !votes.length) return null;
 
-    const totalParticipants = new Set(votes.map(v => v.userName)).size;
+    const totalParticipants = new Set(votes.map(v => v.userName || v.un)).size;
     const totalVotes = votes.length;
-    
+
     // Her soru için analiz
     const questionAnalysis = poll.questions.map((q, qIndex) => {
       const questionVotes = votes.filter(v => v.questionIndex === qIndex);
-      const totalQ = questionVotes.length;
-      
+      const totalQ = questionVotes.length; // Toplam katılımcı sayısı (bu soruya cevap veren)
+
       const optionStats = q.options.map((opt, oIndex) => {
-        const optVotes = questionVotes.filter(v => v.optionIndex === oIndex).length;
+        // Çoklu seçim desteği: ois içinde varsa veya oi ise say
+        const optVotes = questionVotes.filter(v => {
+          if (v.selectedIndices && v.selectedIndices.includes(oIndex)) return true;
+          return v.optionIndex === oIndex;
+        }).length;
+
         return {
           text: opt.text,
           votes: optVotes,
           percentage: totalQ > 0 ? Math.round((optVotes / totalQ) * 100) : 0,
-          isCorrect: oIndex === q.correctOptionIndex
+          isCorrect: oIndex === q.correctOptionIndex || (q.correctOptionIndices && q.correctOptionIndices.includes(oIndex))
         };
       });
 
-      const correctVotes = typeConfig.hasCorrectAnswer 
-        ? questionVotes.filter(v => v.isCorrect).length 
+      const correctVotes = typeConfig.hasCorrectAnswer
+        ? questionVotes.filter(v => v.isCorrect).length
         : 0;
-      
+
       return {
         questionText: q.text,
         totalVotes: totalQ,
@@ -73,17 +86,17 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
 
     // Katılımcı bazında analiz
     const participantAnalysis = [];
-    const participants = new Set(votes.map(v => v.userName));
-    
+    const participants = new Set(votes.map(v => v.userName || v.un));
+
     participants.forEach(name => {
       const userVotes = votes.filter(v => v.userName === name);
-      const correctAnswers = typeConfig.hasCorrectAnswer 
-        ? userVotes.filter(v => v.isCorrect).length 
+      const correctAnswers = typeConfig.hasCorrectAnswer
+        ? userVotes.filter(v => v.isCorrect).length
         : 0;
       const totalAnswered = userVotes.length;
       const score = scores.find(s => s.id === name)?.score || 0;
       const totalTime = scores.find(s => s.id === name)?.totalTime || 0;
-      
+
       participantAnalysis.push({
         name,
         totalAnswered,
@@ -103,8 +116,8 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
       totalQuestions: poll.questions.length,
       questionAnalysis,
       participantAnalysis,
-      overallAccuracy: typeConfig.hasCorrectAnswer && totalVotes > 0 
-        ? Math.round((votes.filter(v => v.isCorrect).length / totalVotes) * 100) 
+      overallAccuracy: typeConfig.hasCorrectAnswer && totalVotes > 0
+        ? Math.round((votes.filter(v => v.isCorrect).length / totalVotes) * 100)
         : null
     };
   }, [poll, votes, scores, typeConfig]);
@@ -113,12 +126,12 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
   const exportPDF = () => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-    
+
     // Başlık
     doc.setFontSize(20);
     doc.setTextColor(79, 70, 229);
     doc.text(poll.title || 'Yarışma Sonuçları', pageWidth / 2, 20, { align: 'center' });
-    
+
     doc.setFontSize(12);
     doc.setTextColor(100);
     doc.text(`${typeConfig.label} - ${new Date().toLocaleDateString('tr-TR')}`, pageWidth / 2, 28, { align: 'center' });
@@ -127,7 +140,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
     doc.setFontSize(14);
     doc.setTextColor(0);
     doc.text('Özet', 14, 45);
-    
+
     doc.setFontSize(10);
     doc.text(`Toplam Katılımcı: ${analytics?.totalParticipants || 0}`, 14, 55);
     doc.text(`Toplam Soru: ${analytics?.totalQuestions || 0}`, 14, 62);
@@ -159,7 +172,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
 
     // Soru analizleri
     let currentY = doc.lastAutoTable.finalY + 20;
-    
+
     if (currentY > 250) {
       doc.addPage();
       currentY = 20;
@@ -193,47 +206,92 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
 
-    // Özet sayfası
-    const summaryData = [
-      ['Yarışma Başlığı', poll.title],
-      ['Tür', typeConfig.label],
-      ['Tarih', new Date().toLocaleDateString('tr-TR')],
+    // 1. Özet Sayfası (Genel)
+    const summaryHeader = [['Yarışma Başlığı', poll.title], ['Tür', typeConfig.label], ['Tarih', new Date().toLocaleDateString('tr-TR')]];
+    const summaryStats = [
       ['Toplam Katılımcı', analytics?.totalParticipants],
       ['Toplam Soru', analytics?.totalQuestions],
       ['Toplam Oy', analytics?.totalVotes],
       ['Genel Doğruluk', analytics?.overallAccuracy ? `%${analytics.overallAccuracy}` : '-']
     ];
-    const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(wb, summaryWs, 'Özet');
+    const summaryWs = XLSX.utils.aoa_to_sheet([...summaryHeader, [], ...summaryStats]);
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Genel Özet');
 
-    // Katılımcılar sayfası
-    const participantHeaders = ['Sıra', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı %', 'Ort. Süre (sn)'];
-    const participantData = analytics?.participantAnalysis.map((p, i) => [
-      i + 1, p.name, p.score, p.correctAnswers, p.wrongAnswers, p.accuracy, p.avgTime
-    ]) || [];
-    const participantWs = XLSX.utils.aoa_to_sheet([participantHeaders, ...participantData]);
-    XLSX.utils.book_append_sheet(wb, participantWs, 'Katılımcılar');
+    // 2. Katılımcılar Sayfası
+    if (analytics?.participantAnalysis) {
+      const participantHeaders = ['Sıra', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı %', 'Ort. Süre (sn)'];
+      const participantData = analytics.participantAnalysis.map((p, i) => [
+        i + 1, p.name, p.score, p.correctAnswers, p.wrongAnswers, p.accuracy, p.avgTime
+      ]);
+      const participantWs = XLSX.utils.aoa_to_sheet([participantHeaders, ...participantData]);
+      XLSX.utils.book_append_sheet(wb, participantWs, 'Katılımcılar');
+    }
 
-    // Soru analizi sayfası
-    const questionHeaders = ['Soru No', 'Soru', 'Toplam Cevap', 'Doğru Cevap', 'Doğru %'];
-    const questionData = analytics?.questionAnalysis.map((q, i) => [
-      i + 1, q.questionText, q.totalVotes, q.correctVotes, q.correctPercentage
-    ]) || [];
-    const questionWs = XLSX.utils.aoa_to_sheet([questionHeaders, ...questionData]);
-    XLSX.utils.book_append_sheet(wb, questionWs, 'Soru Analizi');
+    // 3. Soru Analizi Sayfası
+    const questionDataCalc = poll.questions.map((q, i) => {
+      const qVotes = votes.filter(v => v.questionIndex === i);
+      const row = {
+        'Soru No': i + 1,
+        'Soru': q.text,
+        'Tip': q.questionType === 'open' ? 'Açık Uçlu' : 'Çoktan Seçmeli',
+        'Katılım': qVotes.length + ' kişi'
+      };
 
-    // Tüm oylar sayfası
-    const voteHeaders = ['Katılımcı', 'Soru No', 'Seçenek', 'Doğru mu'];
-    const voteData = votes.map(v => [
-      v.userName, 
-      v.questionIndex + 1, 
-      v.optionIndex + 1,
-      v.isCorrect ? 'Evet' : 'Hayır'
-    ]);
-    const voteWs = XLSX.utils.aoa_to_sheet([voteHeaders, ...voteData]);
-    XLSX.utils.book_append_sheet(wb, voteWs, 'Tüm Oylar');
+      if (q.questionType === 'open') {
+        const answers = qVotes.map(v => v.answer).filter(Boolean);
+        row['Cevaplar'] = answers.join(', ');
+      } else {
+        q.options.forEach((opt, oIndex) => {
+          const count = qVotes.filter(v => v.ois ? v.ois.includes(oIndex) : v.oi === oIndex).length;
+          const percentage = qVotes.length ? Math.round((count / qVotes.length) * 100) : 0;
+          row[`Seçenek ${oIndex + 1} (${opt.text || opt})`] = `${count} (${percentage}%)`;
+        });
+      }
+      return row;
+    });
+    const questionsWs = XLSX.utils.json_to_sheet(questionDataCalc);
+    XLSX.utils.book_append_sheet(wb, questionsWs, 'Soru Detayları');
 
-    XLSX.writeFile(wb, `${poll.title || 'yarisma'}-sonuclar.xlsx`);
+    // 4. Detaylı Cevaplar Sayfası (Raw Data)
+    const activeQuestions = poll.questions;
+    const detailData = votes.map(vote => {
+      const question = activeQuestions[vote.questionIndex];
+      let userAnswer = "";
+
+      if (question.questionType === 'open') {
+        userAnswer = vote.answer;
+      } else {
+        if (vote.ois && vote.ois.length > 0) {
+          userAnswer = vote.ois.map(idx => {
+            const opt = question.options[idx];
+            return typeof opt === 'object' ? opt.text : opt;
+          }).join(', ');
+        } else if (vote.oi !== undefined) {
+          const opt = question.options[vote.oi];
+          userAnswer = typeof opt === 'object' ? opt.text : opt;
+        }
+      }
+
+      const isCorrect = question.questionType === 'multiple' && typeConfig.hasCorrectAnswer
+        ? (vote.ois ? vote.ois.includes(question.correctOptionIndex) && vote.ois.length === 1 : vote.oi === question.correctOptionIndex)
+        : null;
+
+      return {
+        'Kullanıcı': vote.rawName || vote.userName || 'Anonim',
+        'Soru No': vote.questionIndex + 1,
+        'Soru Metni': question.text,
+        'Verilen Cevap': userAnswer,
+        'Doğru mu?': isCorrect === true ? 'Evet' : (isCorrect === false ? 'Hayır' : '-'),
+        'Puan': vote.points || 0,
+        'Tarih': vote.timestamp?.toDate ? vote.timestamp.toDate().toLocaleString() : new Date().toLocaleString()
+      };
+    }).sort((a, b) => a['Soru No'] - b['Soru No']);
+
+    const detailWs = XLSX.utils.json_to_sheet(detailData);
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Tüm Cevaplar (Ham Veri)');
+
+    // İndir
+    XLSX.writeFile(wb, `${poll.title || 'Anket'}_Detayli_Sonuclar.xlsx`);
   };
 
   if (!poll || !analytics) {
@@ -276,11 +334,10 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === tab 
-                  ? 'border-indigo-600 text-indigo-600' 
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+              className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${activeTab === tab
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
             >
               {tab === 'overview' && 'Genel Bakış'}
               {tab === 'questions' && 'Soru Analizi'}
@@ -331,9 +388,8 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                 {analytics.participantAnalysis.slice(0, 5).map((p, i) => (
                   <div key={p.name} className="flex items-center justify-between bg-white p-3 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
-                        i === 0 ? 'bg-amber-500' : i === 1 ? 'bg-slate-400' : i === 2 ? 'bg-amber-700' : 'bg-slate-300'
-                      }`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${i === 0 ? 'bg-amber-500' : i === 1 ? 'bg-slate-400' : i === 2 ? 'bg-amber-700' : 'bg-slate-300'
+                        }`}>
                         {i + 1}
                       </div>
                       <span className="font-medium text-slate-800">{p.name}</span>
@@ -364,13 +420,12 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                     <div className="text-xs text-slate-500">cevap</div>
                   </div>
                 </div>
-                
+
                 <div className="space-y-2">
                   {q.optionStats.map((opt, j) => (
                     <div key={j} className="relative">
-                      <div className={`flex items-center justify-between p-3 rounded-lg ${
-                        opt.isCorrect ? 'bg-emerald-100 border border-emerald-200' : 'bg-white border border-slate-200'
-                      }`}>
+                      <div className={`flex items-center justify-between p-3 rounded-lg ${opt.isCorrect ? 'bg-emerald-100 border border-emerald-200' : 'bg-white border border-slate-200'
+                        }`}>
                         <div className="flex items-center gap-2">
                           {opt.isCorrect && <CheckCircle2 size={16} className="text-emerald-600" />}
                           <span className={opt.isCorrect ? 'text-emerald-800 font-medium' : 'text-slate-700'}>{opt.text}</span>
@@ -380,7 +435,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                           <span className={`font-bold ${opt.isCorrect ? 'text-emerald-600' : 'text-slate-600'}`}>%{opt.percentage}</span>
                         </div>
                       </div>
-                      <div 
+                      <div
                         className={`absolute bottom-0 left-0 h-1 rounded-b-lg ${opt.isCorrect ? 'bg-emerald-400' : 'bg-indigo-400'}`}
                         style={{ width: `${opt.percentage}%` }}
                       />
@@ -420,9 +475,8 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                 {analytics.participantAnalysis.map((p, i) => (
                   <tr key={p.name} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="py-3 px-4">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                        i < 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
-                      }`}>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i < 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                        }`}>
                         {i + 1}
                       </span>
                     </td>
@@ -431,11 +485,10 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                     <td className="py-3 px-4 text-center text-emerald-600">{p.correctAnswers}</td>
                     <td className="py-3 px-4 text-center text-rose-600">{p.wrongAnswers}</td>
                     <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-1 rounded text-xs font-bold ${
-                        p.accuracy >= 70 ? 'bg-emerald-100 text-emerald-700' :
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${p.accuracy >= 70 ? 'bg-emerald-100 text-emerald-700' :
                         p.accuracy >= 40 ? 'bg-amber-100 text-amber-700' :
-                        'bg-rose-100 text-rose-700'
-                      }`}>
+                          'bg-rose-100 text-rose-700'
+                        }`}>
                         %{p.accuracy}
                       </span>
                     </td>

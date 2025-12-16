@@ -1,0 +1,8 @@
+{
+    "appId": "com.openquiz.app",
+    "appName": "Open Quiz",
+    "webDir": "dist",
+    "server": {
+        "androidScheme": "https"
+    }
+}

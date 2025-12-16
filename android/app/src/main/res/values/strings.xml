@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Open Quiz</string>
+    <string name="title_activity_main">Open Quiz</string>
+    <string name="package_name">com.openquiz.app</string>
+    <string name="custom_url_scheme">com.openquiz.app</string>
+</resources>
