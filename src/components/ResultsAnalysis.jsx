@@ -3,16 +3,24 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import {
   Trophy, Users, CheckCircle2, XCircle, BarChart3,
-  Download, FileSpreadsheet, FileText, TrendingUp, Clock
+  Download, FileSpreadsheet, FileText, TrendingUp, Clock, PieChart as PieChartIcon
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  ResponsiveContainer, Tooltip, Legend
+} from 'recharts';
+
+const CHART_COLORS = ['#6366F1', '#EC4899', '#10B981', '#F59E0B', '#8B5CF6', '#3B82F6', '#EF4444', '#14B8A6'];
 
 export default function ResultsAnalysis({ poll, pollId, onClose }) {
   const [votes, setVotes] = useState([]);
   const [scores, setScores] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [chartType, setChartType] = useState('bar'); // 'bar', 'pie', 'radar'
 
   // Oyları dinle
   useEffect(() => {
@@ -408,51 +416,138 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
         {/* Questions Tab */}
         {activeTab === 'questions' && (
           <div className="space-y-6">
-            {analytics.questionAnalysis.map((q, i) => (
-              <div key={i} className="bg-slate-50 rounded-xl p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold">Soru {i + 1}</span>
-                    <h4 className="font-medium text-slate-800 mt-2">{q.questionText}</h4>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-slate-900">{q.totalVotes}</div>
-                    <div className="text-xs text-slate-500">cevap</div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {q.optionStats.map((opt, j) => (
-                    <div key={j} className="relative">
-                      <div className={`flex items-center justify-between p-3 rounded-lg ${opt.isCorrect ? 'bg-emerald-100 border border-emerald-200' : 'bg-white border border-slate-200'
-                        }`}>
-                        <div className="flex items-center gap-2">
-                          {opt.isCorrect && <CheckCircle2 size={16} className="text-emerald-600" />}
-                          <span className={opt.isCorrect ? 'text-emerald-800 font-medium' : 'text-slate-700'}>{opt.text}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm text-slate-500">{opt.votes} oy</span>
-                          <span className={`font-bold ${opt.isCorrect ? 'text-emerald-600' : 'text-slate-600'}`}>%{opt.percentage}</span>
-                        </div>
-                      </div>
-                      <div
-                        className={`absolute bottom-0 left-0 h-1 rounded-b-lg ${opt.isCorrect ? 'bg-emerald-400' : 'bg-indigo-400'}`}
-                        style={{ width: `${opt.percentage}%` }}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                {typeConfig.hasCorrectAnswer && (
-                  <div className="mt-4 pt-4 border-t border-slate-200 flex items-center justify-between">
-                    <span className="text-sm text-slate-500">Doğru cevaplayan</span>
-                    <span className={`font-bold ${q.correctPercentage >= 50 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      %{q.correctPercentage}
-                    </span>
-                  </div>
-                )}
+            {/* Grafik Türü Seçici */}
+            <div className="flex items-center justify-end gap-2 mb-4">
+              <span className="text-sm text-slate-500">Grafik:</span>
+              <div className="bg-slate-100 p-1 rounded-lg flex">
+                <button
+                  onClick={() => setChartType('bar')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition ${chartType === 'bar' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                >
+                  Çubuk
+                </button>
+                <button
+                  onClick={() => setChartType('pie')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition ${chartType === 'pie' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                >
+                  Pasta
+                </button>
+                <button
+                  onClick={() => setChartType('radar')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition ${chartType === 'radar' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}
+                >
+                  Radar
+                </button>
               </div>
-            ))}
+            </div>
+
+            {analytics.questionAnalysis.map((q, i) => {
+              // Grafik verisini hazırla
+              const chartData = q.optionStats.map((opt, idx) => ({
+                name: opt.text.length > 15 ? opt.text.substring(0, 15) + '...' : opt.text,
+                fullName: opt.text,
+                value: opt.votes,
+                percentage: opt.percentage,
+                isCorrect: opt.isCorrect,
+                fill: opt.isCorrect ? '#10B981' : CHART_COLORS[idx % CHART_COLORS.length]
+              }));
+
+              return (
+                <div key={i} className="bg-slate-50 rounded-xl p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold">Soru {i + 1}</span>
+                      <h4 className="font-medium text-slate-800 mt-2">{q.questionText}</h4>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-slate-900">{q.totalVotes}</div>
+                      <div className="text-xs text-slate-500">cevap</div>
+                    </div>
+                  </div>
+
+                  {/* Grafik */}
+                  <div className="bg-white rounded-xl p-4 mb-4">
+                    <ResponsiveContainer width="100%" height={250}>
+                      {chartType === 'pie' ? (
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percentage }) => `${name} (${percentage}%)`}
+                            outerRadius={80}
+                            dataKey="value"
+                          >
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.fill} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value, name, props) => [`${value} oy (${props.payload.percentage}%)`, props.payload.fullName]} />
+                          <Legend />
+                        </PieChart>
+                      ) : chartType === 'radar' ? (
+                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+                          <PolarGrid />
+                          <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
+                          <PolarRadiusAxis angle={30} domain={[0, 'auto']} />
+                          <Radar name="Oy" dataKey="value" stroke="#6366F1" fill="#6366F1" fillOpacity={0.6} />
+                          <Tooltip formatter={(value) => [`${value} oy`, 'Oy Sayısı']} />
+                        </RadarChart>
+                      ) : (
+                        <BarChart data={chartData} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
+                          <Tooltip formatter={(value, name, props) => [`${value} oy (${props.payload.percentage}%)`, 'Oy']} />
+                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Seçenek Listesi */}
+                  <div className="space-y-2">
+                    {q.optionStats.map((opt, j) => (
+                      <div key={j} className="relative">
+                        <div className={`flex items-center justify-between p-3 rounded-lg ${opt.isCorrect ? 'bg-emerald-100 border border-emerald-200' : 'bg-white border border-slate-200'
+                          }`}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: opt.isCorrect ? '#10B981' : CHART_COLORS[j % CHART_COLORS.length] }}
+                            />
+                            {opt.isCorrect && <CheckCircle2 size={16} className="text-emerald-600" />}
+                            <span className={opt.isCorrect ? 'text-emerald-800 font-medium' : 'text-slate-700'}>{opt.text}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-slate-500">{opt.votes} oy</span>
+                            <span className={`font-bold ${opt.isCorrect ? 'text-emerald-600' : 'text-slate-600'}`}>%{opt.percentage}</span>
+                          </div>
+                        </div>
+                        <div
+                          className={`absolute bottom-0 left-0 h-1 rounded-b-lg ${opt.isCorrect ? 'bg-emerald-400' : 'bg-indigo-400'}`}
+                          style={{ width: `${opt.percentage}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {typeConfig.hasCorrectAnswer && (
+                    <div className="mt-4 pt-4 border-t border-slate-200 flex items-center justify-between">
+                      <span className="text-sm text-slate-500">Doğru cevaplayan</span>
+                      <span className={`font-bold ${q.correctPercentage >= 50 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        %{q.correctPercentage}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

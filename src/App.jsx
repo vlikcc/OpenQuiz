@@ -1,7 +1,8 @@
-import React, { useState, useEffect, Suspense, lazy, useCallback } from 'react';
-import { signInAnonymously, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, collection, getDoc, onSnapshot } from 'firebase/firestore';
-import { Trophy, Loader2, CheckCircle2, AlertTriangle, LogOut, Shield, Settings } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { signInAnonymously, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { doc, collection, getDoc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import { Trophy, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 // Config ve sabitler
 import { auth, db, googleProvider, appId, ADMIN_EMAILS, CONTENT_TYPES } from './config/firebase';
@@ -11,25 +12,18 @@ const urlParams = new URLSearchParams(window.location.search);
 const isVoterMode = urlParams.get('mode') === 'voter' && urlParams.get('id');
 const initialPollId = urlParams.get('id');
 
-// VoterMode için eager loading - QR ile gelenlere hızlı yükleme
-const VoterMode = isVoterMode 
-  ? lazy(() => import(/* webpackPrefetch: true */ './components/VoterMode'))
-  : lazy(() => import('./components/VoterMode'));
-
-// Diğer lazy loaded components
-const LandingPage = lazy(() => import('./components/LandingPage'));
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const PresenterMode = lazy(() => import('./components/PresenterMode'));
-const AdminPanel = lazy(() => import('./components/AdminPanel'));
-
-// QR ile gelenler için VoterMode'u hemen preload et
-if (isVoterMode) {
-  import('./components/VoterMode');
-}
+// Static imports
+import VoterMode from './components/VoterMode';
+import Dashboard from './components/Dashboard';
+import PresenterMode from './components/PresenterMode';
+import AdminPanel from './components/AdminPanel';
+import TabBar from './components/TabBar';
+import AuthScreen from './components/AuthScreen';
+import ProfileScreen from './components/ProfileScreen';
 
 // Özel Loading Screen - Voter modu için
 const VoterLoadingScreen = ({ pollData }) => (
-  <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-6">
+  <div className="h-full w-full flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-6">
     <div className="text-center">
       {pollData ? (
         <>
@@ -52,7 +46,7 @@ const VoterLoadingScreen = ({ pollData }) => (
 
 // Genel Loading fallback
 const LoadingScreen = () => (
-  <div className="h-screen flex items-center justify-center bg-slate-50">
+  <div className="h-full w-full flex items-center justify-center bg-slate-50">
     <div className="text-center">
       <Loader2 className="animate-spin text-indigo-600 mx-auto mb-4" size={40} />
       <p className="text-slate-500">Yükleniyor...</p>
@@ -73,56 +67,47 @@ class ErrorBoundary extends React.Component {
 
 // Ana Bileşen
 export default function QuizApp() {
-  console.log("App Component Mounting...");
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [authorizedUsers, setAuthorizedUsers] = useState([]);
   const [preloadedPoll, setPreloadedPoll] = useState(null);
-  
-  const [view, setView] = useState(() => {
-    if (isVoterMode) return 'voter';
-    return localStorage.getItem('appView') || 'dashboard';
-  });
-  
+
+  // Tab-based navigation
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeScreen, setActiveScreen] = useState('tabs'); // 'tabs', 'presenter', 'voter', 'admin', 'create'
   const [activePollId, setActivePollId] = useState(() => {
     if (initialPollId) return initialPollId;
     return localStorage.getItem('activePollId') || null;
   });
-  
-  const [toast, setToast] = useState(null);
 
-  // QR ile gelenler için paralel yükleme - Auth + Poll verisi aynı anda
+  const [toast, setToast] = useState(null);
+  const [isCreating, setIsCreating] = useState(false);
+
+  // QR ile gelenler için paralel yükleme
   useEffect(() => {
     if (!isVoterMode || !initialPollId) return;
-    
-    // Poll verisini hemen çek (auth beklemeden)
+
     const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', initialPollId);
     getDoc(pollRef).then((docSnap) => {
       if (docSnap.exists()) {
         setPreloadedPoll({ id: docSnap.id, ...docSnap.data() });
       }
     }).catch(console.error);
-    
-    // Anonymous auth'u başlat
+
     signInAnonymously(auth).catch(console.error);
   }, []);
 
   // Auth state listener
   useEffect(() => {
-    // Normal modda (voter değil) anonymous auth yapma
-    if (!isVoterMode) {
-      // Auth zaten başladıysa tekrar başlatma
-    }
-    
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
+
       if (currentUser && currentUser.email) {
         const adminStatus = ADMIN_EMAILS.includes(currentUser.email);
         setIsAdmin(adminStatus);
-        
+
         if (adminStatus) {
           setIsAuthorized(true);
         } else {
@@ -134,11 +119,10 @@ export default function QuizApp() {
         setIsAdmin(false);
         setIsAuthorized(false);
       }
-      
+
       setAuthLoading(false);
     });
 
-    // Timeout - 5 saniye sonra auth yanıt vermezse loading'i kapat
     const timer = setTimeout(() => {
       setAuthLoading((prev) => {
         if (prev) {
@@ -148,7 +132,7 @@ export default function QuizApp() {
         return prev;
       });
     }, 5000);
-    
+
     return () => {
       unsubscribe();
       clearTimeout(timer);
@@ -158,32 +142,44 @@ export default function QuizApp() {
   // Yetkili kullanıcıları dinle (admin için)
   useEffect(() => {
     if (!isAdmin) return;
-    
+
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'authorizedUsers');
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const users = snapshot.docs.map(doc => ({ email: doc.id, ...doc.data() }));
       setAuthorizedUsers(users);
     });
-    
+
     return () => unsubscribe();
   }, [isAdmin]);
 
   useEffect(() => {
-    localStorage.setItem('appView', view);
     if (activePollId) localStorage.setItem('activePollId', activePollId);
-  }, [view, activePollId]);
+  }, [activePollId]);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const navigate = useCallback((newView, id = null) => {
-    console.log("Navigating to:", newView, id);
+  const navigate = useCallback((screen, id = null) => {
     if (id) setActivePollId(id);
-    setView(newView);
-    // window.history.pushState({}, '', '/'); // Disabled for mobile stability
+    if (screen === 'dashboard') {
+      setActiveScreen('tabs');
+      setActiveTab('dashboard');
+    } else {
+      setActiveScreen(screen);
+    }
   }, []);
+
+  const handleTabChange = (tab) => {
+    if (tab === 'create') {
+      setIsCreating(true);
+      setActiveTab('dashboard');
+    } else {
+      setIsCreating(false);
+      setActiveTab(tab);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -195,36 +191,88 @@ export default function QuizApp() {
     }
   };
 
+  const handleEmailLogin = async (email, password) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      showToast("Giriş başarılı!");
+    } catch (error) {
+      console.error("Email giriş hatası:", error);
+      let message = "Giriş başarısız";
+      if (error.code === 'auth/user-not-found') message = "Kullanıcı bulunamadı";
+      else if (error.code === 'auth/wrong-password') message = "Yanlış şifre";
+      else if (error.code === 'auth/invalid-email') message = "Geçersiz email";
+      else if (error.code === 'auth/invalid-credential') message = "Email veya şifre hatalı";
+      throw new Error(message);
+    }
+  };
+
+  const handleEmailRegister = async (email, password, displayName) => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName });
+
+      // Kayıtlı kullanıcıyı Firestore'a kaydet
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registeredUsers', userCredential.user.uid), {
+        email: email.toLowerCase(),
+        displayName,
+        createdAt: serverTimestamp(),
+        authProvider: 'email',
+        uid: userCredential.user.uid
+      });
+
+      showToast("Kayıt başarılı!");
+    } catch (error) {
+      console.error("Kayıt hatası:", error);
+      let message = "Kayıt başarısız";
+      if (error.code === 'auth/email-already-in-use') message = "Bu email zaten kullanımda";
+      else if (error.code === 'auth/weak-password') message = "Şifre çok zayıf";
+      else if (error.code === 'auth/invalid-email') message = "Geçersiz email";
+      throw new Error(message);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setView('dashboard');
+      setActiveTab('dashboard');
+      setActiveScreen('tabs');
       showToast("Çıkış yapıldı");
     } catch (error) {
       showToast("Çıkış hatası", "error");
     }
   };
 
-  // Katılımcı modu için özel yükleme - Auth bekleniyor ama UI hemen göster
-  if (isVoterMode && view === 'voter' && activePollId) {
-    // Auth hala yükleniyor - güzel loading ekranı göster
+  const handlePasswordReset = async (email) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      console.error("Şifre sıfırlama hatası:", error);
+      let message = "Şifre sıfırlama başarısız";
+      if (error.code === 'auth/user-not-found') message = "Bu email ile kayıtlı kullanıcı bulunamadı";
+      else if (error.code === 'auth/invalid-email') message = "Geçersiz email";
+      throw new Error(message);
+    }
+  };
+
+  // QR Voter Mode - özel handling
+  if (isVoterMode && initialPollId) {
     if (authLoading || !user) {
       return <VoterLoadingScreen pollData={preloadedPoll} />;
     }
-    
+
     return (
       <ErrorBoundary>
-        <Suspense fallback={<VoterLoadingScreen pollData={preloadedPoll} />}>
-          <VoterMode 
-            pollId={activePollId} 
-            onExit={() => {}} 
-            user={user} 
+        <div className="h-full w-full flex flex-col overflow-hidden">
+          <VoterMode
+            pollId={activePollId}
+            onExit={() => { }}
+            user={user}
             showToast={showToast}
             preloadedPoll={preloadedPoll}
           />
-        </Suspense>
+        </div>
         {toast && (
-          <div className={`fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
+          <div className={`fixed bottom-20 left-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
             {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
             {toast.message}
           </div>
@@ -233,66 +281,126 @@ export default function QuizApp() {
     );
   }
 
-  // Normal mod için auth yüklemesi
+  // Auth loading
   if (authLoading) return <LoadingScreen />;
 
-  // Yönetim paneli için giriş gerekli - Landing Page göster
+  // Giriş yapılmamış - Auth Screen göster
   if (!user || !user.email) {
     return (
       <ErrorBoundary>
-        <Suspense fallback={<LoadingScreen />}>
-          <LandingPage onLogin={handleGoogleLogin} />
-        </Suspense>
+        <AuthScreen
+          onGoogleLogin={handleGoogleLogin}
+          onEmailLogin={handleEmailLogin}
+          onEmailRegister={handleEmailRegister}
+          onPasswordReset={handlePasswordReset}
+          isLoading={authLoading}
+        />
       </ErrorBoundary>
     );
   }
 
-  return (
-    <ErrorBoundary>
-      <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100">
+  // Full-screen modlar (Presenter, Voter, Admin)
+  if (activeScreen === 'presenter' && activePollId) {
+    return (
+      <ErrorBoundary>
+        <div className="h-full w-full flex flex-col overflow-hidden">
+          <PresenterMode
+            pollId={activePollId}
+            onExit={() => navigate('dashboard')}
+            onSwitchToVoter={() => navigate('voter')}
+            showToast={showToast}
+          />
+        </div>
         {toast && (
           <div className={`fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
             {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
             {toast.message}
           </div>
         )}
+      </ErrorBoundary>
+    );
+  }
 
-        <div className="bg-slate-900 text-white p-2 sm:p-3 text-xs flex justify-between items-center px-3 sm:px-4 lg:px-6 sticky top-0 z-40 shadow-md">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <span className="font-bold tracking-wider text-[10px] sm:text-xs">OPEN QUIZ</span>
-            {isAdmin && (
-              <span className="bg-amber-500/20 text-amber-400 px-1.5 sm:px-2 py-0.5 rounded text-[8px] sm:text-[10px] border border-amber-500/30 flex items-center gap-1">
-                <Shield size={10} /> ADMIN
-              </span>
-            )}
+  if (activeScreen === 'voter' && activePollId) {
+    return (
+      <ErrorBoundary>
+        <div className="h-full w-full flex flex-col overflow-hidden">
+          <VoterMode
+            pollId={activePollId}
+            onExit={() => navigate('dashboard')}
+            user={user}
+            showToast={showToast}
+          />
+        </div>
+        {toast && (
+          <div className={`fixed bottom-20 left-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
+            {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+            {toast.message}
           </div>
-          
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="flex gap-1 sm:gap-2">
-              <button onClick={() => setView('dashboard')} className={`px-2 sm:px-3 py-1 rounded transition text-[10px] sm:text-xs ${view === 'dashboard' ? 'bg-white/20' : 'text-slate-400 hover:text-white'}`}>Panel</button>
-              <button onClick={() => activePollId && setView('presenter')} disabled={!activePollId} className={`px-2 sm:px-3 py-1 rounded transition text-[10px] sm:text-xs ${view === 'presenter' ? 'bg-white/20' : 'text-slate-400 hover:text-white disabled:opacity-30'}`}>Sunum</button>
-              {isAdmin && (
-                <button onClick={() => setView('admin')} className={`px-2 sm:px-3 py-1 rounded transition text-[10px] sm:text-xs ${view === 'admin' ? 'bg-white/20' : 'text-slate-400 hover:text-white'}`}>
-                  <Settings size={14} className="inline mr-1" />Yönetim
-                </button>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2 border-l border-slate-700 pl-2 sm:pl-3">
-              <span className="text-slate-400 text-[10px] sm:text-xs hidden sm:inline truncate max-w-[120px]">{user.email}</span>
-              <button onClick={handleLogout} className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded transition">
-                <LogOut size={14} />
-              </button>
-            </div>
+        )}
+      </ErrorBoundary>
+    );
+  }
+
+  if (activeScreen === 'admin' && isAdmin) {
+    return (
+      <ErrorBoundary>
+        <div className="h-full w-full flex flex-col overflow-hidden bg-slate-50">
+          <div className="bg-slate-900 text-white p-4 flex items-center gap-4">
+            <button onClick={() => navigate('dashboard')} className="text-white/70 hover:text-white">
+              ← Geri
+            </button>
+            <h1 className="font-bold">Admin Paneli</h1>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <AdminPanel authorizedUsers={authorizedUsers} showToast={showToast} />
           </div>
         </div>
+      </ErrorBoundary>
+    );
+  }
 
-        <Suspense fallback={<LoadingScreen />}>
-          {view === 'dashboard' && <Dashboard onNavigate={navigate} user={user} showToast={showToast} isAdmin={isAdmin} isAuthorized={isAuthorized} />}
-          {view === 'presenter' && <PresenterMode pollId={activePollId} onExit={() => navigate('dashboard')} onSwitchToVoter={() => navigate('voter', activePollId)} showToast={showToast} />}
-          {view === 'voter' && <VoterMode pollId={activePollId} onExit={() => navigate('dashboard')} user={user} showToast={showToast} />}
-          {view === 'admin' && isAdmin && <AdminPanel authorizedUsers={authorizedUsers} showToast={showToast} />}
-        </Suspense>
+  // Tab-based main app
+  return (
+    <ErrorBoundary>
+      <div className="h-full w-full bg-slate-50 flex flex-col overflow-hidden">
+        {toast && (
+          <div className={`fixed top-4 left-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-medium flex items-center gap-2 animate-bounce-in z-50 ${toast.type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
+            {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+            {toast.message}
+          </div>
+        )}
+
+        {/* Main Content Area - with bottom padding for tab bar */}
+        <div className="flex-1 overflow-hidden pb-16">
+          {activeTab === 'dashboard' && (
+            <Dashboard
+              onNavigate={navigate}
+              user={user}
+              showToast={showToast}
+              isAdmin={isAdmin}
+              isAuthorized={isAuthorized}
+              isCreating={isCreating}
+              setIsCreating={setIsCreating}
+            />
+          )}
+          {activeTab === 'profile' && (
+            <ProfileScreen
+              user={user}
+              isAdmin={isAdmin}
+              isAuthorized={isAuthorized}
+              onLogout={handleLogout}
+              onNavigateToAdmin={() => setActiveScreen('admin')}
+            />
+          )}
+        </div>
+
+        {/* Tab Bar */}
+        <TabBar
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          isAdmin={isAdmin}
+        />
       </div>
     </ErrorBoundary>
   );

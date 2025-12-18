@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, initializeAuth, indexedDBLocalPersistence, browserLocalPersistence, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 
 // Firebase Config - .env dosyasından
 const firebaseConfig = {
@@ -19,7 +20,20 @@ if (!firebaseConfig.apiKey) {
 
 // Firebase başlatma
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// Auth initialization - Capacitor için özel persistence
+let auth;
+if (Capacitor.isNativePlatform()) {
+  // Native platforms (iOS/Android) - use indexedDB persistence
+  auth = initializeAuth(app, {
+    persistence: indexedDBLocalPersistence
+  });
+} else {
+  // Web - use default getAuth
+  auth = getAuth(app);
+}
+
+export { auth };
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 

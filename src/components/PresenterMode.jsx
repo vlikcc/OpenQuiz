@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { doc, collection, onSnapshot, updateDoc, query, where, limit, orderBy } from 'firebase/firestore';
 import { BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { Home, QrCode, Users, Trophy, Loader2, ChevronRight, ChevronLeft, BarChart3, MessageSquare, RefreshCw, Heart, ThumbsUp, PartyPopper, Smile } from 'lucide-react';
@@ -6,8 +6,7 @@ import { db, appId, COLORS, CONTENT_TYPES } from '../config/firebase';
 import QrModal from './QrModal';
 import KatexRenderer from './KatexRenderer';
 import { throttle } from '../utils/performanceUtils';
-
-const ResultsAnalysis = lazy(() => import('./ResultsAnalysis'));
+import ResultsAnalysis from './ResultsAnalysis';
 
 export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToast }) {
   const [poll, setPoll] = useState(null);
@@ -238,6 +237,37 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
     }
   }, [poll, pollId]);
 
+  // Yarışmayı başlat - status'u 'live' yap
+  const startPoll = useCallback(async () => {
+    if (!poll) return;
+    try {
+      const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+      await updateDoc(pollRef, {
+        status: 'live',
+        isActive: true
+      });
+      if (showToast) showToast('Yarışma başlatıldı! 🎉');
+    } catch (error) {
+      console.error('Start poll error:', error);
+      if (showToast) showToast('Başlatma hatası', 'error');
+    }
+  }, [poll, pollId, showToast]);
+
+  // Yarışmayı bitir
+  const endPoll = useCallback(async () => {
+    if (!poll) return;
+    try {
+      const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+      await updateDoc(pollRef, {
+        status: 'ended',
+        isActive: false
+      });
+      if (showToast) showToast('Yarışma sona erdi');
+    } catch (error) {
+      console.error('End poll error:', error);
+    }
+  }, [poll, pollId, showToast]);
+
   // Seçenekleri hesapla - önce aggregated data, yoksa votes'tan hesapla
   const currentOptions = useMemo(() => {
     if (!poll) return [];
@@ -314,16 +344,43 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
 
         <div className="bg-slate-100 p-0.5 sm:p-1 rounded-lg flex shadow-inner order-3 sm:order-2 w-full sm:w-auto justify-center mt-2 sm:mt-0">
           <button onClick={() => setActiveTab('chart')} className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded text-xs sm:text-sm font-bold transition ${activeTab === 'chart' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Soru {currentQIndex + 1}/{poll.questions.length}</button>
-          <button onClick={() => setActiveTab('leaderboard')} className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded text-xs sm:text-sm font-bold transition ${activeTab === 'leaderboard' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Liderlik</button>
+          {/* Liderlik sekmesi sadece anket dışındaki türlerde gösterilir */}
+          {!isSurvey && (
+            <button onClick={() => setActiveTab('leaderboard')} className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded text-xs sm:text-sm font-bold transition ${activeTab === 'leaderboard' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Liderlik</button>
+          )}
           <button onClick={() => setActiveTab('results')} className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded text-xs sm:text-sm font-bold transition flex items-center gap-1 ${activeTab === 'results' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
             <BarChart3 size={14} /> <span className="hidden sm:inline">Analiz</span>
           </button>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 order-2 sm:order-3">
-          <div className="bg-blue-50 text-blue-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-2 border border-blue-100">
-            <Users size={12} /> {isOpenQuestion ? openAnswers.length : totalVotes}
+          {/* Katılımcı Sayacı */}
+          <div className="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-2 border border-emerald-100">
+            <Users size={12} /> {poll.participantCount || 0} katılımcı
           </div>
+
+          {/* Oy/Cevap Sayacı */}
+          <div className="bg-blue-50 text-blue-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-2 border border-blue-100">
+            {isOpenQuestion ? openAnswers.length : totalVotes} oy
+          </div>
+
+          {/* Başlat/Bitir Butonu */}
+          {poll.status === 'waiting' ? (
+            <button
+              onClick={startPoll}
+              className="bg-gradient-to-r from-emerald-500 to-green-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold hover:from-emerald-600 hover:to-green-700 shadow-lg shadow-emerald-500/30 animate-pulse"
+            >
+              🚀 Başlat
+            </button>
+          ) : poll.status === 'live' ? (
+            <button
+              onClick={endPoll}
+              className="bg-gradient-to-r from-red-500 to-rose-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold hover:from-red-600 hover:to-rose-700"
+            >
+              Bitir
+            </button>
+          ) : null}
+
           <button onClick={onSwitchToVoter} className="hidden lg:flex bg-indigo-50 text-indigo-600 px-3 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold hover:bg-indigo-100">Test Et</button>
         </div>
       </div>
@@ -551,9 +608,7 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
 
         {activeTab === 'results' && (
           <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-            <Suspense fallback={<div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>}>
-              <ResultsAnalysis poll={poll} pollId={pollId} onClose={() => setActiveTab('chart')} />
-            </Suspense>
+            <ResultsAnalysis poll={poll} pollId={pollId} onClose={() => setActiveTab('chart')} />
           </div>
         )}
       </div>

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment, runTransaction } from 'firebase/firestore';
+import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment, runTransaction, updateDoc } from 'firebase/firestore';
 import { CheckCircle2, XCircle, Loader2, Send, Heart, ThumbsUp, PartyPopper, Smile } from 'lucide-react';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import KatexRenderer from './KatexRenderer';
 import { cacheUtils } from '../utils/performanceUtils';
+import WaitingRoom from './WaitingRoom';
 
 export default function VoterMode({ pollId, onExit, user, showToast, preloadedPoll = null }) {
   const [step, setStep] = useState('name');
@@ -19,6 +20,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [timeLeft, setTimeLeft] = useState(30);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   // Optimizasyon: Oy verilen soruları takip et
   const votedQuestionsRef = useRef(new Set());
@@ -85,13 +87,27 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     return () => clearInterval(interval);
   }, [isTimerRunning, timeLeft, hasVotedForCurrent]);
 
-  const handleStart = useCallback((e) => {
+  const handleStart = useCallback(async (e) => {
     e.preventDefault();
     if (userName.trim()) {
       localStorage.setItem('voterName', userName);
+
+      // Katılımcı sayısını artır
+      if (!isRegistered) {
+        try {
+          const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+          await updateDoc(pollRef, {
+            participantCount: increment(1)
+          });
+          setIsRegistered(true);
+        } catch (error) {
+          console.error('Participant registration error:', error);
+        }
+      }
+
       setStep('vote');
     }
-  }, [userName]);
+  }, [userName, pollId, isRegistered]);
 
   // Tekli seçim veya çoklu seçim toggle
   const handleVote = useCallback(async (optionIndex) => {
@@ -265,6 +281,17 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
 
   if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
+  // Bekleme Odası - status 'waiting' ise
+  if (step === 'vote' && poll.status === 'waiting') {
+    return (
+      <WaitingRoom
+        poll={poll}
+        participantCount={poll.participantCount || 0}
+        userName={userName}
+      />
+    );
+  }
+
   // İsim Giriş Ekranı
   if (step === 'name') {
     const pollType = poll.type || 'contest';
@@ -332,8 +359,8 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
   const isOpenQuestion = activeQuestion.questionType === 'open';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col w-full max-w-2xl mx-auto">
-      <div className="p-4 sm:p-6">
+    <div className="h-full bg-slate-50 flex flex-col w-full max-w-2xl mx-auto overflow-hidden">
+      <div className="p-4 sm:p-6 shrink-0 z-10 bg-slate-50">
         <div className="flex justify-between items-center mb-3 sm:mb-4">
           <div className="flex items-center gap-2">
             <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-bold ${isExam ? 'bg-rose-100 text-rose-700' : 'bg-indigo-100 text-indigo-700'}`}>
@@ -377,7 +404,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
         )}
       </div>
 
-      <div className="flex-1 p-4 sm:p-6 space-y-2 sm:space-y-3">
+      <div className="flex-1 p-4 sm:p-6 space-y-2 sm:space-y-3 overflow-y-auto custom-scrollbar">
         {isOpenQuestion ? (
           <div className="space-y-4">
             <textarea
