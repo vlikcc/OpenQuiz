@@ -51,7 +51,7 @@ const LoginScreen = ({ onLogin, isLoading }) => {
 
             {/* Footer */}
             <p className="absolute bottom-8 text-white/40 text-xs">
-                © 2024 Open Quiz
+                © 2025 Open Quiz
             </p>
         </div>
     );

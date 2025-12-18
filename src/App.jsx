@@ -20,6 +20,7 @@ import AdminPanel from './components/AdminPanel';
 import TabBar from './components/TabBar';
 import AuthScreen from './components/AuthScreen';
 import ProfileScreen from './components/ProfileScreen';
+import LandingPage from './components/LandingPage';
 
 // Özel Loading Screen - Voter modu için
 const VoterLoadingScreen = ({ pollData }) => (
@@ -84,6 +85,7 @@ export default function QuizApp() {
 
   const [toast, setToast] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showLandingPage, setShowLandingPage] = useState(true); // Web'de önce landing page göster
 
   // QR ile gelenler için paralel yükleme
   useEffect(() => {
@@ -284,17 +286,31 @@ export default function QuizApp() {
   // Auth loading
   if (authLoading) return <LoadingScreen />;
 
-  // Giriş yapılmamış - Auth Screen göster
+  // Giriş yapılmamış - LandingPage veya Auth Screen göster
   if (!user || !user.email) {
+    const isNative = Capacitor.isNativePlatform();
+
+    // Native (iOS/Android) ise direkt AuthScreen göster
+    // Web'de ise önce LandingPage, sonra login butonuna basınca AuthScreen
+    if (isNative || !showLandingPage) {
+      return (
+        <ErrorBoundary>
+          <AuthScreen
+            onGoogleLogin={handleGoogleLogin}
+            onEmailLogin={handleEmailLogin}
+            onEmailRegister={handleEmailRegister}
+            onPasswordReset={handlePasswordReset}
+            isLoading={authLoading}
+            onBack={!isNative ? () => setShowLandingPage(true) : undefined}
+          />
+        </ErrorBoundary>
+      );
+    }
+
+    // Web'de LandingPage göster
     return (
       <ErrorBoundary>
-        <AuthScreen
-          onGoogleLogin={handleGoogleLogin}
-          onEmailLogin={handleEmailLogin}
-          onEmailRegister={handleEmailRegister}
-          onPasswordReset={handlePasswordReset}
-          isLoading={authLoading}
-        />
+        <LandingPage onLogin={() => setShowLandingPage(false)} />
       </ErrorBoundary>
     );
   }

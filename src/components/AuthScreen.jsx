@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Trophy, Mail, Lock, User, ArrowRight, Loader2, Eye, EyeOff, KeyRound, CheckCircle } from 'lucide-react';
+import { Trophy, Mail, Lock, User, ArrowRight, Loader2, Eye, EyeOff, KeyRound, CheckCircle, ArrowLeft } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 
-const AuthScreen = ({ onGoogleLogin, onEmailLogin, onEmailRegister, onPasswordReset, isLoading: authLoading }) => {
+const AuthScreen = ({ onGoogleLogin, onEmailLogin, onEmailRegister, onPasswordReset, isLoading: authLoading, onBack }) => {
     const [mode, setMode] = useState('login'); // 'login', 'register', 'reset'
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -91,6 +91,16 @@ const AuthScreen = ({ onGoogleLogin, onEmailLogin, onEmailRegister, onPasswordRe
 
     return (
         <div className="h-full w-full bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col overflow-hidden">
+            {/* Back Button */}
+            {onBack && (
+                <button
+                    onClick={onBack}
+                    className="absolute top-6 left-6 p-2 bg-white/20 backdrop-blur-sm rounded-full text-white hover:bg-white/30 transition-colors z-10"
+                >
+                    <ArrowLeft size={24} />
+                </button>
+            )}
+
             {/* Header */}
             <div className="pt-12 pb-8 px-6 text-center shrink-0">
                 <div className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl">

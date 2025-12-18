@@ -258,7 +258,7 @@ const LandingPage = ({ onLogin }) => {
               </div>
               <span className="font-bold">OpenQuiz</span>
             </div>
-            <p className="text-slate-500 text-sm">© 2024 Open Quiz. Tüm hakları saklıdır.</p>
+            <p className="text-slate-500 text-sm">© 2025 Open Quiz. Tüm hakları saklıdır.</p>
           </div>
         </footer>
       </div>
