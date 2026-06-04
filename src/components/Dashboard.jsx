@@ -40,16 +40,32 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
     if (isAdmin) {
       q = query(collection(db, 'artifacts', appId, 'public', 'data', 'polls'), orderBy('createdAt', 'desc'));
     } else {
+      // creatorEmail + orderBy birleşik sorgu Firestore'da composite index gerektirir;
+      // index yoksa sorgu sessizce başarısız olur. Sadece where ile çekip client'ta sıralıyoruz.
       q = query(
         collection(db, 'artifacts', appId, 'public', 'data', 'polls'),
-        where('creatorEmail', '==', user.email),
-        orderBy('createdAt', 'desc')
+        where('creatorEmail', '==', user.email)
       );
     }
 
-    return onSnapshot(q, (snapshot) => {
-      setPolls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (!isAdmin) {
+          docs.sort((a, b) => {
+            const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return tb - ta;
+          });
+        }
+        setPolls(docs);
+      },
+      (error) => {
+        console.error('Yarışmalar yüklenemedi:', error);
+        showToast('Yarışmalar yüklenemedi', 'error');
+      }
+    );
   }, [isAdmin, user.email]);
 
   const copyToClipboard = (text) => {
