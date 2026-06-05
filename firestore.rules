@@ -19,6 +19,14 @@ service cloud.firestore {
               pollData.creatorId == request.auth.uid);
     }
     
+    // Alt koleksiyon (votes/scores/reactions) için üst poll'un sahibi mi kontrol et
+    function isPollCreator(pollId) {
+      let pollPath = /databases/$(database)/documents/artifacts/quiz-master-pro/public/data/polls/$(pollId);
+      return request.auth != null && exists(pollPath) &&
+             (get(pollPath).data.creatorEmail == request.auth.token.email ||
+              get(pollPath).data.creatorId == request.auth.uid);
+    }
+    
     // Sadece voteCounts güncellemesi mi kontrol et
     function isOnlyVoteCountsUpdate() {
       let affectedKeys = request.resource.data.diff(resource.data).affectedKeys();
@@ -47,10 +55,26 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     
-    // Oylar - herkes oy verebilir
+    // Oylar - herkes oy verebilir; silme sadece admin veya poll sahibi (sonuç temizleme)
     match /artifacts/quiz-master-pro/public/data/polls/{pollId}/votes/{voteId} {
       allow read: if true;
       allow create: if request.auth != null;
+      allow delete: if request.auth != null && (isAdmin() || isPollCreator(pollId));
+    }
+
+    // Poll'a özel skorlar - katılımcılar kendi skorlarını yazabilir;
+    // silme admin veya poll sahibi (sonuç temizleme)
+    match /artifacts/quiz-master-pro/public/data/polls/{pollId}/scores/{userName} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+      allow delete: if request.auth != null && (isAdmin() || isPollCreator(pollId));
+    }
+
+    // Reaksiyonlar - herkes gönderebilir; silme admin veya poll sahibi (sonuç temizleme)
+    match /artifacts/quiz-master-pro/public/data/polls/{pollId}/reactions/{reactionId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null && (isAdmin() || isPollCreator(pollId));
     }
     
     // Skorlar - herkes yazabilir

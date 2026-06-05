@@ -29,25 +29,40 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
     return onSnapshot(q, (snapshot) => {
       setVotes(snapshot.docs.map(doc => {
         const data = doc.data();
+        // Firestore'da kısaltılmış alan adları yazılıyor (un, c, qt, ans, pts, ts).
+        // Analizde okunan alan adlarına eşle.
         return {
           ...data,
           questionIndex: data.qi ?? data.questionIndex,
           optionIndex: data.oi ?? data.optionIndex,
-          selectedIndices: data.ois ?? (data.oi !== undefined ? [data.oi] : [])
+          selectedIndices: data.ois ?? (data.oi !== undefined ? [data.oi] : []),
+          userName: data.un ?? data.userName,
+          isCorrect: data.c ?? data.isCorrect,
+          questionType: data.qt ?? data.questionType,
+          answer: data.ans ?? data.answer,
+          points: data.pts ?? data.points,
+          responseTime: data.rt ?? data.responseTime,
+          timestamp: data.ts ?? data.timestamp
         };
       }));
+    }, (error) => {
+      console.error('Oylar yüklenemedi:', error);
     });
   }, [pollId]);
 
-  // Skorları dinle
+  // Skorları dinle - poll'a özel skorlar
   useEffect(() => {
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+    if (!pollId) return;
+    const q = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'scores');
     return onSnapshot(q, (snapshot) => {
       let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => (b.score || 0) - (a.score || 0));
+      // Eşit puanda daha hızlı (toplam süresi düşük) olan üst sırada
+      data.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.totalTime || 0) - (b.totalTime || 0));
       setScores(data);
+    }, (error) => {
+      console.error('Skorlar yüklenemedi:', error);
     });
-  }, []);
+  }, [pollId]);
 
   const pollType = poll?.type || 'contest';
   const typeConfig = CONTENT_TYPES[pollType] || CONTENT_TYPES.contest;
@@ -63,8 +78,9 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
     const questionAnalysis = poll.questions.map((q, qIndex) => {
       const questionVotes = votes.filter(v => v.questionIndex === qIndex);
       const totalQ = questionVotes.length; // Toplam katılımcı sayısı (bu soruya cevap veren)
+      const isOpen = q.questionType === 'open' || !Array.isArray(q.options);
 
-      const optionStats = q.options.map((opt, oIndex) => {
+      const optionStats = isOpen ? [] : q.options.map((opt, oIndex) => {
         // Çoklu seçim desteği: ois içinde varsa veya oi ise say
         const optVotes = questionVotes.filter(v => {
           if (v.selectedIndices && v.selectedIndices.includes(oIndex)) return true;
@@ -72,7 +88,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
         }).length;
 
         return {
-          text: opt.text,
+          text: typeof opt === 'object' ? opt.text : opt,
           votes: optVotes,
           percentage: totalQ > 0 ? Math.round((optVotes / totalQ) * 100) : 0,
           isCorrect: oIndex === q.correctOptionIndex || (q.correctOptionIndices && q.correctOptionIndices.includes(oIndex))
@@ -80,11 +96,12 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
       });
 
       const correctVotes = typeConfig.hasCorrectAnswer
-        ? questionVotes.filter(v => v.isCorrect).length
+        ? questionVotes.filter(v => v.isCorrect === true).length
         : 0;
 
       return {
         questionText: q.text,
+        isOpen,
         totalVotes: totalQ,
         correctVotes,
         correctPercentage: totalQ > 0 ? Math.round((correctVotes / totalQ) * 100) : 0,
@@ -94,29 +111,58 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
 
     // Katılımcı bazında analiz
     const participantAnalysis = [];
-    const participants = new Set(votes.map(v => v.userName || v.un));
+    const participants = new Set(votes.map(v => v.userName).filter(Boolean));
 
+    const isExam = pollType === 'exam';
     participants.forEach(name => {
       const userVotes = votes.filter(v => v.userName === name);
-      const correctAnswers = typeConfig.hasCorrectAnswer
-        ? userVotes.filter(v => v.isCorrect).length
-        : 0;
+      // Sadece otomatik değerlendirilen (çoktan seçmeli) cevaplar doğru/yanlış sayılır.
+      // Açık uçlu cevaplar manuel değerlendirildiği için isCorrect=null olur ve hariç tutulur.
+      const gradedVotes = userVotes.filter(v => typeof v.isCorrect === 'boolean');
+      const correctAnswers = gradedVotes.filter(v => v.isCorrect === true).length;
+      const wrongAnswers = gradedVotes.filter(v => v.isCorrect === false).length;
       const totalAnswered = userVotes.length;
-      const score = scores.find(s => s.id === name)?.score || 0;
-      const totalTime = scores.find(s => s.id === name)?.totalTime || 0;
+
+      // Puanı doğrudan oylardan hesapla (poll'a özel, güvenilir). Önce kayıtlı puan (pts),
+      // yoksa tür bazlı: sınavda sorunun puanı, yarışma/quiz'de 100.
+      let score = 0;
+      if (typeConfig.hasCorrectAnswer) {
+        userVotes.forEach(v => {
+          if (v.isCorrect === true) {
+            if (typeof v.points === 'number') {
+              score += v.points;
+            } else if (isExam) {
+              const q = poll.questions[v.questionIndex];
+              score += (q && q.points) ? q.points : 10;
+            } else {
+              score += 100;
+            }
+          }
+        });
+      }
+
+      // Süreyi oylardan (rt) hesapla; eski veride yoksa skor kaydındaki toplam süreye düş
+      let totalTime = userVotes.reduce((acc, v) => acc + (v.responseTime || 0), 0);
+      if (totalTime === 0) {
+        const scoreEntry = scores.find(s => s.id === name);
+        totalTime = scoreEntry?.totalTime || 0;
+      }
 
       participantAnalysis.push({
         name,
         totalAnswered,
         correctAnswers,
-        wrongAnswers: totalAnswered - correctAnswers,
-        accuracy: totalAnswered > 0 ? Math.round((correctAnswers / totalAnswered) * 100) : 0,
+        wrongAnswers,
+        accuracy: gradedVotes.length > 0 ? Math.round((correctAnswers / gradedVotes.length) * 100) : 0,
         score,
-        avgTime: totalAnswered > 0 ? Math.round(totalTime / totalAnswered / 1000) : 0
+        totalTime,
+        avgTime: totalAnswered > 0 ? Math.round(totalTime / totalAnswered / 1000) : 0,
+        totalTimeSec: Math.round(totalTime / 1000)
       });
     });
 
-    participantAnalysis.sort((a, b) => b.score - a.score);
+    // Eşit puanda daha hızlı (toplam süresi düşük) olan üst sırada
+    participantAnalysis.sort((a, b) => b.score - a.score || a.totalTime - b.totalTime);
 
     return {
       totalParticipants,
@@ -124,9 +170,12 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
       totalQuestions: poll.questions.length,
       questionAnalysis,
       participantAnalysis,
-      overallAccuracy: typeConfig.hasCorrectAnswer && totalVotes > 0
-        ? Math.round((votes.filter(v => v.isCorrect).length / totalVotes) * 100)
-        : null
+      overallAccuracy: (() => {
+        if (!typeConfig.hasCorrectAnswer) return null;
+        const graded = votes.filter(v => typeof v.isCorrect === 'boolean');
+        if (graded.length === 0) return 0;
+        return Math.round((graded.filter(v => v.isCorrect === true).length / graded.length) * 100);
+      })()
     };
   }, [poll, votes, scores, typeConfig]);
 
@@ -167,12 +216,13 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
       p.score,
       p.correctAnswers,
       p.wrongAnswers,
-      `%${p.accuracy}`
+      `%${p.accuracy}`,
+      `${p.avgTime}s`
     ]) || [];
 
     doc.autoTable({
       startY: 100,
-      head: [['#', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı']],
+      head: [['#', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı', 'Ort. Süre']],
       body: participantData,
       theme: 'striped',
       headStyles: { fillColor: [79, 70, 229] }
@@ -227,9 +277,9 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
 
     // 2. Katılımcılar Sayfası
     if (analytics?.participantAnalysis) {
-      const participantHeaders = ['Sıra', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı %', 'Ort. Süre (sn)'];
+      const participantHeaders = ['Sıra', 'İsim', 'Puan', 'Doğru', 'Yanlış', 'Başarı %', 'Ort. Süre (sn)', 'Toplam Süre (sn)'];
       const participantData = analytics.participantAnalysis.map((p, i) => [
-        i + 1, p.name, p.score, p.correctAnswers, p.wrongAnswers, p.accuracy, p.avgTime
+        i + 1, p.name, p.score, p.correctAnswers, p.wrongAnswers, p.accuracy, p.avgTime, p.totalTimeSec
       ]);
       const participantWs = XLSX.utils.aoa_to_sheet([participantHeaders, ...participantData]);
       XLSX.utils.book_append_sheet(wb, participantWs, 'Katılımcılar');
@@ -264,36 +314,37 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
     const activeQuestions = poll.questions;
     const detailData = votes.map(vote => {
       const question = activeQuestions[vote.questionIndex];
+      if (!question) return null;
       let userAnswer = "";
+      const isOpenQ = question.questionType === 'open' || vote.questionType === 'open';
 
-      if (question.questionType === 'open') {
-        userAnswer = vote.answer;
-      } else {
+      if (isOpenQ) {
+        userAnswer = vote.answer || '';
+      } else if (Array.isArray(question.options)) {
         if (vote.ois && vote.ois.length > 0) {
           userAnswer = vote.ois.map(idx => {
             const opt = question.options[idx];
             return typeof opt === 'object' ? opt.text : opt;
           }).join(', ');
-        } else if (vote.oi !== undefined) {
+        } else if (vote.oi !== undefined && vote.oi !== null) {
           const opt = question.options[vote.oi];
           userAnswer = typeof opt === 'object' ? opt.text : opt;
         }
       }
 
-      const isCorrect = question.questionType === 'multiple' && typeConfig.hasCorrectAnswer
-        ? (vote.ois ? vote.ois.includes(question.correctOptionIndex) && vote.ois.length === 1 : vote.oi === question.correctOptionIndex)
-        : null;
+      // Doğruluk bilgisi cevap kaydında saklı (c -> isCorrect); yeniden hesaplama yapmıyoruz.
+      const isCorrect = typeof vote.isCorrect === 'boolean' ? vote.isCorrect : null;
 
       return {
-        'Kullanıcı': vote.rawName || vote.userName || 'Anonim',
+        'Kullanıcı': vote.userName || 'Anonim',
         'Soru No': vote.questionIndex + 1,
         'Soru Metni': question.text,
         'Verilen Cevap': userAnswer,
         'Doğru mu?': isCorrect === true ? 'Evet' : (isCorrect === false ? 'Hayır' : '-'),
         'Puan': vote.points || 0,
-        'Tarih': vote.timestamp?.toDate ? vote.timestamp.toDate().toLocaleString() : new Date().toLocaleString()
+        'Tarih': vote.timestamp?.toDate ? vote.timestamp.toDate().toLocaleString() : '-'
       };
-    }).sort((a, b) => a['Soru No'] - b['Soru No']);
+    }).filter(Boolean).sort((a, b) => a['Soru No'] - b['Soru No']);
 
     const detailWs = XLSX.utils.json_to_sheet(detailData);
     XLSX.utils.book_append_sheet(wb, detailWs, 'Tüm Cevaplar (Ham Veri)');
@@ -404,6 +455,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="text-emerald-600 text-sm">{p.correctAnswers} doğru</span>
+                      <span className="text-slate-400 text-sm flex items-center gap-1"><Clock size={13} /> {p.totalTimeSec}s</span>
                       <span className="font-bold text-indigo-600">{p.score} puan</span>
                     </div>
                   </div>
@@ -443,14 +495,17 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
 
             {analytics.questionAnalysis.map((q, i) => {
               // Grafik verisini hazırla
-              const chartData = q.optionStats.map((opt, idx) => ({
-                name: opt.text.length > 15 ? opt.text.substring(0, 15) + '...' : opt.text,
-                fullName: opt.text,
-                value: opt.votes,
-                percentage: opt.percentage,
-                isCorrect: opt.isCorrect,
-                fill: opt.isCorrect ? '#10B981' : CHART_COLORS[idx % CHART_COLORS.length]
-              }));
+              const chartData = q.optionStats.map((opt, idx) => {
+                const label = opt.text || `Seçenek ${idx + 1}`;
+                return {
+                  name: label.length > 15 ? label.substring(0, 15) + '...' : label,
+                  fullName: label,
+                  value: opt.votes,
+                  percentage: opt.percentage,
+                  isCorrect: opt.isCorrect,
+                  fill: opt.isCorrect ? '#10B981' : CHART_COLORS[idx % CHART_COLORS.length]
+                };
+              });
 
               return (
                 <div key={i} className="bg-slate-50 rounded-xl p-6">
@@ -465,6 +520,14 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                     </div>
                   </div>
 
+                  {q.isOpen ? (
+                    <div className="bg-white rounded-xl p-6 text-center text-slate-500">
+                      <FileText size={28} className="mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">Açık uçlu soru — {q.totalVotes} cevap alındı.</p>
+                      <p className="text-xs text-slate-400 mt-1">Cevap metinleri Excel raporunda görüntülenebilir.</p>
+                    </div>
+                  ) : (
+                  <>
                   {/* Grafik */}
                   <div className="bg-white rounded-xl p-4 mb-4">
                     <ResponsiveContainer width="100%" height={250}>
@@ -545,6 +608,8 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                       </span>
                     </div>
                   )}
+                  </>
+                  )}
                 </div>
               );
             })}
@@ -564,6 +629,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                   <th className="text-center py-3 px-4 font-medium text-slate-600">Yanlış</th>
                   <th className="text-center py-3 px-4 font-medium text-slate-600">Başarı</th>
                   <th className="text-center py-3 px-4 font-medium text-slate-600">Ort. Süre</th>
+                  <th className="text-center py-3 px-4 font-medium text-slate-600">Toplam Süre</th>
                 </tr>
               </thead>
               <tbody>
@@ -588,6 +654,7 @@ export default function ResultsAnalysis({ poll, pollId, onClose }) {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center text-slate-500">{p.avgTime}s</td>
+                    <td className="py-3 px-4 text-center text-slate-500">{p.totalTimeSec}s</td>
                   </tr>
                 ))}
               </tbody>

@@ -16,6 +16,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
   const [startTime, setStartTime] = useState(Date.now());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+  const [lastPoints, setLastPoints] = useState(0);
   const [openAnswer, setOpenAnswer] = useState('');
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [timeLeft, setTimeLeft] = useState(30);
@@ -145,12 +146,16 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     // Ancak survey modunda doğru/yanlış yok
 
     let isCorrect = null;
+    let earnedPoints = 0;
+    const isExam = pollType === 'exam';
     if (typeConfig.hasCorrectAnswer) {
       // Çoklu seçimde doğruluk kontrolü henüz implement edilmedi (basit single choice varsayımı var önceki kodda)
       // Şimdilik sadece tekli seçim gibi davranıyoruz contest/exam için
       // Eğer allowMultiple=true ise ve hasCorrectAnswer=true ise, bu mantık iyileştirilmeli.
       // Şu anki implementasyon sadece Survey (anket) için çoklu seçimi hedefliyor.
       isCorrect = indices.length === 1 && indices[0] === currentQuestion.correctOptionIndex;
+      // Sınavda her sorunun kendi puanı vardır; yarışma/quiz'de doğru cevap 100 puan.
+      earnedPoints = isCorrect ? (isExam ? (currentQuestion.points || 10) : 100) : 0;
     }
 
     const responseTime = Date.now() - startTime;
@@ -159,6 +164,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     try {
       setHasVotedForCurrent(true);
       setLastResult(typeConfig.hasCorrectAnswer ? (isCorrect ? 'correct' : 'wrong') : 'voted');
+      setLastPoints(earnedPoints);
       votedQuestionsRef.current.add(voteKey);
       cacheUtils.set(`voted_${voteKey}`, true, 3600000);
 
@@ -173,6 +179,8 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
           uid: user.uid,
           un: userName,
           c: isCorrect,
+          pts: earnedPoints, // Bu cevaptan kazanılan puan
+          rt: responseTime, // Cevaplama süresi (ms)
           ts: serverTimestamp()
         })
       );
@@ -203,11 +211,13 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
       );
 
       if (typeConfig.hasCorrectAnswer) {
-        const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', userName);
+        // Skorlar poll'a özel tutulur ki farklı yarışmaların puanları/süreleri karışmasın.
+        const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'scores', userName);
         writePromises.push(
           setDoc(scoreRef, {
-            score: increment(isCorrect ? 100 : 0),
-            totalTime: increment(responseTime)
+            score: increment(earnedPoints),
+            totalTime: increment(responseTime),
+            name: userName
           }, { merge: true })
         );
       }
@@ -261,6 +271,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
         ans: openAnswer.trim(),
         uid: user.uid,
         un: userName,
+        rt: Date.now() - startTime, // Cevaplama süresi (ms)
         ts: serverTimestamp(),
         pts: currentQuestion.points || 10
       });
@@ -341,7 +352,7 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
         <div className="bg-white/20 backdrop-blur-md p-10 rounded-3xl shadow-2xl animate-bounce-in">
           {lastResult === 'correct' ? <CheckCircle2 size={64} className="mx-auto mb-4" /> : <XCircle size={64} className="mx-auto mb-4" />}
           <h2 className="text-4xl font-black mb-2">{lastResult === 'correct' ? 'DOĞRU!' : 'YANLIŞ'}</h2>
-          <p className="text-xl opacity-90 mb-8">{lastResult === 'correct' ? '+100 Puan' : 'Puan alamadın'}</p>
+          <p className="text-xl opacity-90 mb-8">{lastResult === 'correct' ? `+${lastPoints} Puan` : 'Puan alamadın'}</p>
           <div className="flex items-center justify-center gap-2 bg-black/20 px-4 py-2 rounded-full text-sm font-medium animate-pulse">
             <Loader2 size={16} className="animate-spin" /> Sunucu bir sonraki soruya geçene kadar bekle...
           </div>

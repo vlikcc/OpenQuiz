@@ -213,9 +213,10 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
     }
   }, [pollId]);
 
-  // Leaderboard dinleyici - throttled
+  // Leaderboard dinleyici - throttled (poll'a özel skorlar)
   useEffect(() => {
-    const scoresRef = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+    if (!pollId) return;
+    const scoresRef = collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'scores');
 
     const throttledSetLeaderboard = throttle((scores) => {
       setLeaderboard(scores);
@@ -223,10 +224,13 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
 
     return onSnapshot(scoresRef, (snapshot) => {
       let scores = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Eşit puanda daha hızlı (toplam süresi düşük) olan üst sırada
       scores.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.totalTime || 0) - (b.totalTime || 0));
       throttledSetLeaderboard(scores.slice(0, 50)); // İlk 50 kişi
+    }, (error) => {
+      console.error('Leaderboard listener error:', error);
     });
-  }, []);
+  }, [pollId]);
 
   const changeQuestion = useCallback(async (direction) => {
     if (!poll) return;
@@ -593,12 +597,15 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
                 </div>
               ) : (
                 leaderboard.map((p, i) => (
-                  <div key={p.id} className="flex justify-between p-3 sm:p-4 border-b border-slate-50 hover:bg-slate-50">
+                  <div key={p.id} className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-50 hover:bg-slate-50">
                     <div className="flex gap-2 sm:gap-3 font-bold text-slate-700 text-sm sm:text-base">
                       <span className={i < 3 ? 'text-yellow-600' : ''}>#{i + 1}</span>
                       <span>{p.id}</span>
                     </div>
-                    <div className="font-mono text-indigo-600 font-bold text-sm sm:text-base">{p.score || 0} Puan</div>
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <span className="text-slate-400 text-xs sm:text-sm font-mono">{Math.round((p.totalTime || 0) / 1000)}s</span>
+                      <span className="font-mono text-indigo-600 font-bold text-sm sm:text-base">{p.score || 0} Puan</span>
+                    </div>
                   </div>
                 ))
               )}

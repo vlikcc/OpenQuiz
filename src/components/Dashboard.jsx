@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   collection, addDoc, doc, deleteDoc, onSnapshot,
-  serverTimestamp, query, orderBy, where, setDoc
+  serverTimestamp, query, orderBy, where, setDoc,
+  getDocs, writeBatch, updateDoc
 } from 'firebase/firestore';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
-import { Plus, Trash2, Smartphone, XCircle, Users, AlertTriangle, Copy, QrCode, Upload, Loader2, BookOpen, Edit2, Image as ImageIcon, Timer } from 'lucide-react';
+import { Plus, Trash2, Smartphone, XCircle, Users, AlertTriangle, Copy, QrCode, Upload, Loader2, BookOpen, Edit2, Image as ImageIcon, Timer, RotateCcw } from 'lucide-react';
 import QrModal from './QrModal';
 import KatexRenderer, { KatexEditor, KATEX_EXAMPLES, MARKDOWN_EXAMPLES } from './KatexRenderer';
 import FileImport from './FileImport';
@@ -15,6 +16,7 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
   const [editingPollId, setEditingPollId] = useState(null); // Düzenlenen anket ID'si
   const [qrPoll, setQrPoll] = useState(null);
   const [showFileImport, setShowFileImport] = useState(false);
+  const [clearingPollId, setClearingPollId] = useState(null);
 
   const canCreateQuiz = isAdmin || isAuthorized;
 
@@ -289,6 +291,55 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
     } catch (error) {
       console.error(error);
       showToast("Silme hatası", "error");
+    }
+  };
+
+  // Sonuçları temizle: aynı içeriği farklı gruplara tekrar uygulayabilmek için
+  // tüm oyları, skorları ve reaksiyonları siler, poll durumunu sıfırlar.
+  const handleClearResults = async (poll) => {
+    const canClear = isAdmin || poll.creatorEmail === user.email;
+    if (!canClear) {
+      showToast("Bu yarışmanın sonuçlarını temizleme yetkiniz yok", "error");
+      return;
+    }
+
+    if (!confirm(`"${poll.title || 'Bu yarışma'}" için tüm sonuçlar (cevaplar, puanlar, sıralama) silinecek ve yarışma yeniden başlatılacak. Sorular korunur. Emin misiniz?`)) return;
+
+    setClearingPollId(poll.id);
+    try {
+      const subCollections = ['votes', 'scores', 'reactions'];
+      for (const sub of subCollections) {
+        const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'polls', poll.id, sub));
+        let batch = writeBatch(db);
+        let opCount = 0;
+        for (const d of snap.docs) {
+          batch.delete(d.ref);
+          opCount++;
+          // Firestore batch limiti 500; güvenli aralıkta commit et
+          if (opCount === 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            opCount = 0;
+          }
+        }
+        if (opCount > 0) await batch.commit();
+      }
+
+      // Poll durumunu sıfırla (sorular korunur)
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'polls', poll.id), {
+        voteCounts: {},
+        participantCount: 0,
+        currentQuestionIndex: 0,
+        status: 'waiting',
+        isActive: false
+      });
+
+      showToast("Sonuçlar temizlendi! Yarışma yeniden uygulanmaya hazır.");
+    } catch (error) {
+      console.error('Sonuç temizleme hatası:', error);
+      showToast("Sonuçlar temizlenirken hata oluştu", "error");
+    } finally {
+      setClearingPollId(null);
     }
   };
 
@@ -676,6 +727,16 @@ export default function Dashboard({ onNavigate, user, showToast, isAdmin, isAuth
                     </div>
                     <div className="flex gap-1">
                       <button onClick={() => setQrPoll(poll)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors" title="QR Kod"><QrCode size={16} /></button>
+                      {canDeleteThisPoll && (
+                        <button
+                          onClick={() => handleClearResults(poll)}
+                          disabled={clearingPollId === poll.id}
+                          className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-100"
+                          title="Sonuçları Temizle (yeniden uygula)"
+                        >
+                          {clearingPollId === poll.id ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                        </button>
+                      )}
                       {canDeleteThisPoll && (
                         <button onClick={() => handleDeletePoll(poll)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Sil">
                           <Trash2 size={16} />
