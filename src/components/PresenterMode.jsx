@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { doc, collection, onSnapshot, updateDoc, query, where, limit, orderBy } from 'firebase/firestore';
+import { doc, collection, onSnapshot, updateDoc, query, limit, orderBy } from 'firebase/firestore';
 import { BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { Home, QrCode, Users, Trophy, Loader2, ChevronRight, ChevronLeft, BarChart3, MessageSquare, RefreshCw, Heart, ThumbsUp, PartyPopper, Smile } from 'lucide-react';
 import { db, appId, COLORS, CONTENT_TYPES } from '../config/firebase';
@@ -600,7 +600,7 @@ export default function PresenterMode({ pollId, onExit, onSwitchToVoter, showToa
                   <div key={p.id} className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-50 hover:bg-slate-50">
                     <div className="flex gap-2 sm:gap-3 font-bold text-slate-700 text-sm sm:text-base">
                       <span className={i < 3 ? 'text-yellow-600' : ''}>#{i + 1}</span>
-                      <span>{p.id}</span>
+                      <span>{p.name || p.id}</span>
                     </div>
                     <div className="flex items-center gap-3 sm:gap-4">
                       <span className="text-slate-400 text-xs sm:text-sm font-mono">{Math.round((p.totalTime || 0) / 1000)}s</span>

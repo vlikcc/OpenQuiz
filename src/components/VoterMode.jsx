@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { doc, collection, addDoc, setDoc, onSnapshot, serverTimestamp, increment, runTransaction, updateDoc } from 'firebase/firestore';
+import { doc, collection, addDoc, onSnapshot, serverTimestamp, increment, runTransaction, updateDoc } from 'firebase/firestore';
 import { CheckCircle2, XCircle, Loader2, Send, Heart, ThumbsUp, PartyPopper, Smile } from 'lucide-react';
 import { db, appId, CONTENT_TYPES } from '../config/firebase';
 import KatexRenderer from './KatexRenderer';
@@ -161,6 +161,15 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
     const responseTime = Date.now() - startTime;
     const voteKey = `${pollId}_${currentQIndex}`;
 
+    // Deterministik ID'ler: aynı kullanıcının aynı soruya birden fazla kez
+    // puan kazanmasını veritabanı seviyesinde engeller (idempotency).
+    const safeName = (userName || 'anon').replace(/[/.#$[\]]/g, '_').slice(0, 120);
+    const voteDocId = `${user.uid}_q${currentQIndex}`;
+
+    const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
+    const voteRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes', voteDocId);
+    const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'scores', safeName);
+
     try {
       setHasVotedForCurrent(true);
       setLastResult(typeConfig.hasCorrectAnswer ? (isCorrect ? 'correct' : 'wrong') : 'voted');
@@ -168,11 +177,19 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
       votedQuestionsRef.current.add(voteKey);
       cacheUtils.set(`voted_${voteKey}`, true, 3600000);
 
-      const writePromises = [];
+      // Oy kaydı, voteCounts ve skor güncellemesi tek bir atomik transaction'da yapılır.
+      // Böylece bu soruya zaten cevap verilmişse hiçbir şey tekrar yazılmaz/sayılmaz.
+      await runTransaction(db, async (transaction) => {
+        // Firestore kuralı: tüm okumalar yazmalardan önce yapılmalı.
+        const pollDoc = await transaction.get(pollRef);
+        if (!pollDoc.exists()) return;
+        const voteDoc = await transaction.get(voteRef);
 
-      // Vote kaydı
-      writePromises.push(
-        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'votes'), {
+        // Bu kullanıcı bu soruyu zaten cevapladıysa tekrar sayma (puan şişmesini önler).
+        if (voteDoc.exists()) return;
+
+        // Oy kaydı
+        transaction.set(voteRef, {
           qi: currentQIndex,
           oi: indices.length === 1 ? indices[0] : null, // Geriye dönük uyumluluk
           ois: indices, // Yeni çoklu seçim alanı
@@ -182,47 +199,34 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
           pts: earnedPoints, // Bu cevaptan kazanılan puan
           rt: responseTime, // Cevaplama süresi (ms)
           ts: serverTimestamp()
-        })
-      );
+        });
 
-      // Aggregated update
-      const pollRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId);
-      writePromises.push(
-        runTransaction(db, async (transaction) => {
-          const pollDoc = await transaction.get(pollRef);
-          if (!pollDoc.exists()) return;
+        // Aggregated voteCounts güncellemesi
+        const pollData = pollDoc.data();
+        const voteCounts = pollData.voteCounts || {};
+        const qKey = `q${currentQIndex}`;
 
-          const pollData = pollDoc.data();
-          const voteCounts = pollData.voteCounts || {};
-          const qKey = `q${currentQIndex}`;
+        if (!voteCounts[qKey]) voteCounts[qKey] = {};
 
-          if (!voteCounts[qKey]) voteCounts[qKey] = {};
+        indices.forEach(idx => {
+          voteCounts[qKey][`o${idx}`] = (voteCounts[qKey][`o${idx}`] || 0) + 1;
+        });
 
-          indices.forEach(idx => {
-            voteCounts[qKey][`o${idx}`] = (voteCounts[qKey][`o${idx}`] || 0) + 1;
-          });
+        voteCounts[qKey].total = (voteCounts[qKey].total || 0) + 1; // Toplam katılım (tekil kullanıcı)
 
-          voteCounts[qKey].total = (voteCounts[qKey].total || 0) + 1; // Toplam katılım sayısı (tekil kullanıcı)
-          // Not: Analizde 'toplam oy' seçenek bazlı mı kullanıcı bazlı mı gösterilecek? 
-          // PresenterMode'da toplam oy kullanıcı sayısı olarak gösteriliyor genellikle.
+        transaction.update(pollRef, { voteCounts });
 
-          transaction.update(pollRef, { voteCounts });
-        })
-      );
-
-      if (typeConfig.hasCorrectAnswer) {
-        // Skorlar poll'a özel tutulur ki farklı yarışmaların puanları/süreleri karışmasın.
-        const scoreRef = doc(db, 'artifacts', appId, 'public', 'data', 'polls', pollId, 'scores', userName);
-        writePromises.push(
-          setDoc(scoreRef, {
+        // Skor: poll'a özel alt-koleksiyon (global birikmeyi önler).
+        // Sınavda sorunun puanı, yarışma/quiz'de 100 puan (earnedPoints).
+        if (typeConfig.hasCorrectAnswer) {
+          transaction.set(scoreRef, {
+            name: userName,
             score: increment(earnedPoints),
-            totalTime: increment(responseTime),
-            name: userName
-          }, { merge: true })
-        );
-      }
+            totalTime: increment(responseTime)
+          }, { merge: true });
+        }
+      });
 
-      await Promise.all(writePromises);
       setIsSubmitting(false);
 
     } catch (error) {
@@ -232,7 +236,6 @@ export default function VoterMode({ pollId, onExit, user, showToast, preloadedPo
       votedQuestionsRef.current.delete(voteKey);
       cacheUtils.clear(`voted_${voteKey}`);
       if (showToast) showToast("Oy gönderilirken hata oluştu.", "error");
-      showToast("Hata oluştu", "error");
       setIsSubmitting(false);
     }
   }, [poll, currentQIndex, selectedIndices, user, userName, startTime, pollId, showToast]);
