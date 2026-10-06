@@ -1,0 +1,23 @@
+{
+  "name": "OpenQuiz Self-Hosted",
+  "user": "ubuntu",
+  "snapshot": "snapshot-20260823-d1bb80d8-86b8-4444-9d0c-b67432658e77",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "bash .cursor/run-api.sh",
+      "description": "ASP.NET Core 10 API on http://localhost:5142 (applies EF Core migrations on boot, serves REST + SignalR)."
+    },
+    {
+      "name": "web",
+      "command": "bash .cursor/run-web.sh",
+      "description": "Vite dev server for the React frontend on http://localhost:5173 (proxies to the API via VITE_API_BASE_URL)."
+    }
+  ],
+  "ports": [
+    { "name": "api", "port": 5142 },
+    { "name": "web", "port": 5173 }
+  ]
+}

@@ -1,0 +1,156 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openquiz}
+      POSTGRES_USER: ${POSTGRES_USER:-openquiz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # scram-sha-256 for every connection, including the first superuser.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    # Loopback only: the API reaches PostgreSQL over the Compose network, and
+    # an exposed 5432 is the first port a scanner tries passwords on.
+    ports:
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    # Docker's 64 MB default /dev/shm is too small for parallel queries.
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-1g}
+          cpus: "${DB_CPU_LIMIT:-1.0}"
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-openquiz};Username=${POSTGRES_USER:-openquiz};Password=${POSTGRES_PASSWORD}"
+      Jwt__Issuer: ${JWT_ISSUER:-openquiz}
+      Jwt__Audience: ${JWT_AUDIENCE:-openquiz}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Jwt__AccessTokenMinutes: ${JWT_ACCESS_MINUTES:-15}
+      Jwt__RefreshTokenDays: ${JWT_REFRESH_DAYS:-30}
+      Google__ClientId: ${GOOGLE_CLIENT_ID}
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-no-reply@openquiz.local}
+      Smtp__FromName: ${SMTP_FROM_NAME:-OpenQuiz}
+      Smtp__UseStartTls: ${SMTP_USE_STARTTLS:-true}
+      App__PublicUrl: ${PUBLIC_URL:-http://localhost:8080}
+      App__AdminEmail: ${ADMIN_EMAIL:-}
+      Cors__AllowedOrigins: "${PUBLIC_URL:-http://localhost:8080},http://localhost:8080,http://127.0.0.1:8080"
+      # Behind the bundled Caddy (or any proxy that is the only way in), read the
+      # visitor's address from X-Forwarded-For so rate limits are per visitor.
+      RateLimiting__TrustForwardedHeaders: ${TRUST_FORWARDED_HEADERS:-false}
+      RateLimiting__ForwardLimit: ${FORWARD_LIMIT:-1}
+      RateLimiting__Participation__PermitLimit: ${RATE_LIMIT_PARTICIPATION:-240}
+      Realtime__RedisConnectionString: ${REDIS_CONNECTION_STRING:-}
+      Observability__PrometheusEnabled: ${PROMETHEUS_ENABLED:-false}
+      Observability__OtlpEndpoint: ${OTLP_ENDPOINT:-}
+      Billing__Enabled: ${BILLING_ENABLED:-false}
+      Billing__Provider: ${BILLING_PROVIDER:-manual}
+      Billing__DefaultPlanCode: ${BILLING_DEFAULT_PLAN:-unlimited}
+      Billing__LegacyPlanCode: ${BILLING_LEGACY_PLAN:-}
+      Billing__LegacyCutoffUtc: ${BILLING_LEGACY_CUTOFF:-}
+      Billing__Currency: ${BILLING_CURRENCY:-TRY}
+      Billing__WebhookSecret: ${BILLING_WEBHOOK_SECRET:-}
+      Billing__CheckoutReturnUrl: ${BILLING_CHECKOUT_RETURN_URL:-}
+      Billing__Prices__pro__Monthly: ${BILLING_PRICE_PRO_MONTHLY:-499}
+      Billing__Prices__pro__Yearly: ${BILLING_PRICE_PRO_YEARLY:-4990}
+      Billing__Prices__team__Monthly: ${BILLING_PRICE_TEAM_MONTHLY:-1499}
+      Billing__Prices__team__Yearly: ${BILLING_PRICE_TEAM_YEARLY:-14990}
+    # Loopback only. The browser reaches the API through the web container or
+    # Caddy; publishing it would also let a client forge X-Forwarded-For.
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-5080}:8080"
+    volumes:
+      - api-logs:/app/logs
+      - api-media:/app/data/media
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-1g}
+          cpus: "${API_CPU_LIMIT:-1.5}"
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL-}
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+        VITE_BILLING_CONTACT_EMAIL: ${VITE_BILLING_CONTACT_EMAIL-}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    # Set WEB_BIND=127.0.0.1 when Caddy or another proxy on this host fronts it.
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEMORY_LIMIT:-256m}
+          cpus: "${WEB_CPU_LIMIT:-0.5}"
+
+  # TLS edge for production. Enabled with COMPOSE_PROFILES=proxy in .env:
+  # obtains and renews a Let's Encrypt certificate for DOMAIN, sends /api and
+  # /hubs straight to the API and everything else to the web container.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    deploy:
+      resources:
+        limits:
+          memory: ${CADDY_MEMORY_LIMIT:-256m}
+          cpus: "${CADDY_CPU_LIMIT:-0.5}"
+
+volumes:
+  pg-data:
+  api-logs:
+  api-media:
+  caddy-data:
+  caddy-config:

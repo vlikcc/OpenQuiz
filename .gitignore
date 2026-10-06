@@ -1,32 +1,51 @@
-# Logs
-logs
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+*.pidb
+*.swp
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# EF Core
+**/Migrations/Designer.cs
 
-# Environment variables (secrets)
+# Test output
+TestResults/
+coverage/
+
+# Rider / VS
+.idea/
+*.DotSettings.user
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
 
-# Firebase deploy cache
-.firebase/
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# OS
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Local
+secrets.json
+appsettings.Development.json
+appsettings.Local.json
+
+# Docker
+*.tar
+
+.dfmt/
+
+# Database / media backups (scripts/backup.sh)
+backups/

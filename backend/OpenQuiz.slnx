@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OpenQuiz.Api/OpenQuiz.Api.csproj" />
+    <Project Path="src/OpenQuiz.Application/OpenQuiz.Application.csproj" />
+    <Project Path="src/OpenQuiz.Domain/OpenQuiz.Domain.csproj" />
+    <Project Path="src/OpenQuiz.Infrastructure/OpenQuiz.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenQuiz.Api.Tests/OpenQuiz.Api.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/OpenQuiz.DataImport/OpenQuiz.DataImport.csproj" />
+  </Folder>
+</Solution>

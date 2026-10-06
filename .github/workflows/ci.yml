@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore backend/OpenQuiz.slnx
+
+      - name: Build
+        run: dotnet build backend/OpenQuiz.slnx --configuration Release --no-restore
+
+      # The suite starts its own PostgreSQL through Testcontainers, which needs
+      # the Docker daemon the runner already provides.
+      - name: Test
+        run: dotnet test backend/tests/OpenQuiz.Api.Tests/OpenQuiz.Api.Tests.csproj --configuration Release --no-build --logger 'trx;LogFileName=backend-tests.trx'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: backend/tests/OpenQuiz.Api.Tests/TestResults/
+          if-no-files-found: ignore
+
+  deploy:
+    name: Deployment config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose file resolves (local and proxy profiles)
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-placeholder-password/' .env
+          docker compose config -q
+          COMPOSE_PROFILES=proxy DOMAIN=quiz.example.com docker compose config -q
+
+      - name: Caddyfile is valid
+        run: docker run --rm -e DOMAIN=quiz.example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Operator scripts
+        run: |
+          bash -n scripts/*.sh
+          shellcheck -x scripts/*.sh
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Bundle budget
+        run: npm run check:bundle

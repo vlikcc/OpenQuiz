@@ -1,0 +1,47 @@
+# TLS edge for a production OpenQuiz install (docker compose profile "proxy").
+#
+# Caddy obtains and renews the Let's Encrypt certificate for {$DOMAIN} on its
+# own; DNS for the domain must already point at this server and ports 80/443
+# must be reachable from the internet.
+#
+# /api and /hubs go straight to the API so the visitor's address arrives as the
+# only X-Forwarded-For entry (FORWARD_LIMIT=1). Routing them through the web
+# container's nginx would add a second hop.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Question images are capped at 2 MB by the API; spreadsheets imported
+	# client-side never reach the server.
+	request_body {
+		max_size 25MB
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	# SignalR: WebSocket upgrade is handled automatically; long-polling
+	# fallback needs responses flushed immediately.
+	handle /hubs/* {
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
