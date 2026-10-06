@@ -48,7 +48,7 @@ otomatik HTTPS ile çalıştırmayı adım adım anlatır. Genel self-hosting de
 
 ```bash
 sudo mkdir -p /opt/openquiz && sudo chown $USER /opt/openquiz
-git clone https://github.com/vlikcc/OpenQuiz-Selfhosted.git /opt/openquiz
+git clone https://github.com/vlikcc/OpenQuiz.git /opt/openquiz
 cd /opt/openquiz
 cp .env.example .env
 chmod 600 .env

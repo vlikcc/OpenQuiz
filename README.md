@@ -1,10 +1,10 @@
-# OpenQuiz — Self-Hosted
+# OpenQuiz
 
-Self-hostable, real-time **quiz / survey / exam / word cloud** platform. This is the
-single, production-ready successor of the Firebase-based [vlikcc/OpenQuiz](https://github.com/vlikcc/OpenQuiz):
-every feature of that app lives here, including its last additions (per-poll
-scoring with idempotent votes, and clearing a poll's results to run it again),
-and its Firestore data can be imported with `backend/tools/OpenQuiz.DataImport`.
+Self-hostable, real-time **quiz / survey / exam / word cloud** platform. It
+replaces the earlier Firebase-based version of this repository: every feature of
+that app lives here, including its last additions (per-poll scoring with
+idempotent votes, and clearing a poll's results to run it again), and its
+Firestore data can be imported with `backend/tools/OpenQuiz.DataImport`.
 
 - **Backend:** ASP.NET Core 10 + EF Core 10
 - **Database:** PostgreSQL 17
