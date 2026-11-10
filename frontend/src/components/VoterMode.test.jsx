@@ -6,6 +6,7 @@ import { pollService } from '../services/pollService';
 import { realtimeService } from '../services/realtimeService';
 import { voteService } from '../services/voteService';
 import { POLL_STATUS_VALUE, POLL_TYPE_VALUE, QUESTION_TYPE_VALUE } from '../config/constants';
+import { EntitlementKeys } from '../config/entitlementKeys';
 
 vi.mock('../services/pollService', () => ({
   pollService: { get: vi.fn(), join: vi.fn() },
@@ -176,5 +177,50 @@ describe('VoterMode question timer', () => {
 
     expect(await screen.findByText('SÜRE DOLDU')).toBeInTheDocument();
     expect(voteService.submit).not.toHaveBeenCalled();
+  });
+});
+
+describe('VoterMode joining', () => {
+  beforeEach(() => {
+    pollService.get.mockResolvedValue(poll(1));
+    captureRealtimeHandlers();
+  });
+
+  it('keeps a participant out of a full session and says why', async () => {
+    const full = Object.assign(new Error('This session has reached its participant limit.'), {
+      status: 402,
+      planLimit: { limitKey: EntitlementKeys.LimitParticipantsPerSession },
+    });
+    pollService.join.mockRejectedValue(full);
+
+    await joinAsVoter();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Bu oturum dolu: katılımcı sınırına ulaşıldı.');
+    expect(screen.queryByText('SORU 2')).not.toBeInTheDocument();
+  });
+
+  it('lets the participant retry after a failed join', async () => {
+    pollService.join.mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValueOnce({});
+
+    const user = await joinAsVoter();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Oturuma katılınamadı. Lütfen tekrar deneyin.');
+
+    await user.click(screen.getByRole('button', { name: 'Katıl' }));
+
+    expect(await screen.findByText('SORU 2')).toBeInTheDocument();
+    expect(pollService.join).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VoterMode waiting room', () => {
+  it('greets the participant by name', async () => {
+    pollService.get.mockResolvedValue({ ...poll(0), status: POLL_STATUS_VALUE.waiting });
+    pollService.join.mockResolvedValue({});
+    captureRealtimeHandlers();
+
+    await joinAsVoter();
+
+    const greeting = await screen.findByText(/Hoş geldin/);
+    expect(greeting).toHaveTextContent('Hoş geldin, Ada! 👋');
   });
 });

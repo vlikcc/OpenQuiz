@@ -10,6 +10,9 @@ import { reactionService } from '../services/reactionService';
 import { realtimeService } from '../services/realtimeService';
 import { useTranslation } from 'react-i18next';
 import QrModal from './QrModal';
+import JoinQrCode from './JoinQrCode';
+import UnreachableJoinWarning from './UnreachableJoinWarning';
+import { useJoinUrl } from '../hooks/useJoinUrl';
 import KatexText from './KatexText';
 import { mediaUrl } from '../utils/mediaUrl';
 import OpenAnswerList from './OpenAnswerList';
@@ -30,6 +33,32 @@ function bumpTally(tally, emoji) {
   const next = [...tally];
   next[index] = { emoji, count: next[index].count + 1 };
   return next;
+}
+
+/** What the projector shows so the room can get in: a QR to scan, or a code to type. */
+function JoinPanel({ pollId, joinCode }) {
+  const { t } = useTranslation();
+  const { joinUrl, host, reachable } = useJoinUrl({ code: joinCode, pollId });
+
+  return (
+    <div className="mb-6">
+      <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10">
+        <div className="bg-white p-4 rounded-2xl shadow-2xl">
+          <JoinQrCode url={joinUrl} alt={t('qr.imageAlt')} className="w-56 h-56 sm:w-64 sm:h-64" resolution={640} />
+        </div>
+        <div className="flex flex-col items-center md:items-start gap-3">
+          <p className="text-lg font-semibold">{t('presenter.scanToJoin')}</p>
+          {joinCode && (
+            <>
+              <p className="text-white/70">{t('presenter.orEnterCode', { host })}</p>
+              <p className="font-mono tracking-[0.35em] text-5xl sm:text-6xl font-black">{joinCode}</p>
+            </>
+          )}
+        </div>
+      </div>
+      {!reachable && <UnreachableJoinWarning className="mt-6 max-w-lg mx-auto" />}
+    </div>
+  );
 }
 
 export default function PresenterMode({ pollId, onExit, showToast }) {
@@ -214,13 +243,11 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
 
       <div className="flex-1 overflow-y-auto p-6">
         {statusKey === 'waiting' && (
-          <div className="max-w-2xl mx-auto text-center p-10">
-            <h2 className="text-3xl font-bold mb-4">{t('presenter.waitingRoomTitle')}</h2>
-            {poll.joinCode && (
-              <p className="font-mono tracking-[0.35em] text-5xl sm:text-6xl font-black mb-6">{poll.joinCode}</p>
-            )}
+          <div className="max-w-3xl mx-auto text-center p-6 sm:p-10">
+            <h2 className="text-3xl font-bold mb-6">{t('presenter.waitingRoomTitle')}</h2>
+            <JoinPanel pollId={pollId} joinCode={poll.joinCode} />
             <p className="text-white/70 mb-6" aria-live="polite">{t('presenter.peopleJoined', { count: poll.participantCount || 0 })}</p>
-            <button onClick={handleActivate} className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold flex items-center gap-2 mx-auto"><Play size={20} /> {t('presenter.startContest')}</button>
+            <button onClick={handleActivate} className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold flex items-center gap-2 mx-auto"><Play size={20} /> {t('presenter.start')}</button>
           </div>
         )}
 

@@ -72,18 +72,18 @@ export function KatexEditor({ value, onChange, placeholder, className = '', rows
 
   return (
     <div className="space-y-3">
-      <div className="relative">
+      <div>
+        <div className="flex justify-end gap-1 mb-1">
+          <span className="bg-rose-100 text-rose-600 px-2 py-0.5 rounded text-[10px] font-bold">KaTeX</span>
+          <span className="bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold">Markdown</span>
+        </div>
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
-          className={`w-full p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-200 focus:border-rose-400 outline-none font-mono text-sm ${className}`}
+          className={`w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg focus:ring-2 focus:ring-rose-200 dark:focus:ring-rose-900 focus:border-rose-400 outline-none font-mono text-sm ${className}`}
         />
-        <div className="absolute top-2 right-2 flex gap-1">
-          <span className="bg-rose-100 text-rose-600 px-2 py-0.5 rounded text-[10px] font-bold">KaTeX</span>
-          <span className="bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold">Markdown</span>
-        </div>
       </div>
       
       {/* Önizleme */}
@@ -101,15 +101,15 @@ export function KatexEditor({ value, onChange, placeholder, className = '', rows
       )}
       
       {/* Yardım */}
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+      <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
         <div className="text-[10px] uppercase text-slate-400 font-bold mb-2">Format Yardımı</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
-          <div><code className="bg-white px-1 rounded">**kalın**</code> → <strong>kalın</strong></div>
-          <div><code className="bg-white px-1 rounded">*italik*</code> → <em>italik</em></div>
-          <div><code className="bg-white px-1 rounded">`kod`</code> → <code className="bg-slate-100 px-1 rounded text-rose-600">kod</code></div>
-          <div><code className="bg-white px-1 rounded">$x^2$</code> → formül</div>
-          <div><code className="bg-white px-1 rounded">- madde</code> → liste</div>
-          <div><code className="bg-white px-1 rounded">&gt; alıntı</code> → alıntı</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">**kalın**</code> → <strong>kalın</strong></div>
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">*italik*</code> → <em>italik</em></div>
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">`kod`</code> → <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded text-rose-600 dark:text-rose-400">kod</code></div>
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">$x^2$</code> → formül</div>
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">- madde</code> → liste</div>
+          <div><code className="bg-white dark:bg-slate-800 px-1 rounded">&gt; alıntı</code> → alıntı</div>
         </div>
       </div>
     </div>

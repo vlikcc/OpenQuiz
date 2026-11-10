@@ -141,6 +141,8 @@
     "shareResults": "Copy results link",
     "shareResultsCopied": "Results link copied",
     "disableShare": "Stop sharing results",
+    "confirmDisableShare": "The results link for \"{{title}}\" will stop working and anyone holding it will lose access. Are you sure?",
+    "shareDisabled": "Results are no longer shared",
     "resultsUnavailable": "This results link is not available.",
     "joinFailed": "That room code was not found.",
     "helpTitle": "Help",
@@ -183,12 +185,16 @@
     "answerFailed": "Answer failed",
     "submitFailed": "Submit failed",
     "timeUp": "TIME IS UP",
-    "secondsLeft": "{{n}}s"
+    "secondsLeft": "{{n}}s",
+    "sessionFull": "This session is full: it has reached its participant limit.",
+    "joinFailed": "Could not join the session. Please try again."
   },
   "presenter": {
     "waitingRoomTitle": "Waiting room",
+    "scanToJoin": "Scan the QR code with your phone to join",
+    "orEnterCode": "or go to {{host}} and enter this code:",
     "peopleJoined": "{{count}} people joined.",
-    "startContest": "Start the contest",
+    "start": "Start",
     "questionOf": "Question {{current}} / {{total}}",
     "results": "Results",
     "answers": "Answers ({{n}})",
@@ -235,7 +241,7 @@
     "loadError": "Failed to load"
   },
   "waiting": {
-    "welcome": "Welcome, {{name}}! 👋",
+    "welcome": "Welcome, <name>{{name}}</name>! 👋",
     "waiting": "people joining",
     "managerWaiting": "Waiting for host",
     "managerHint": "Questions will appear automatically once the host starts the poll.",
@@ -282,16 +288,22 @@
     "ctaDescription": "No credit card required. Start on the free plan and upgrade when you need more.",
     "ctaGoogleLogin": "Sign in with Google",
     "pricing": "Pricing",
-    "footer": "© 2025 Open Quiz. All rights reserved."
+    "footer": "© 2025 Open Quiz. All rights reserved.",
+    "joinTitle": "Joining an event? Enter the room code",
+    "joinPlaceholder": "Room code",
+    "joinButton": "Join"
   },
   "qr": {
-    "title": "Join the Poll",
+    "title": "Join the Event",
+    "imageAlt": "Join QR code",
     "participantsWaiting": "{{count}} participants waiting",
     "shareLink": "or share the link",
     "shareButton": "Share Link",
-    "shareTitle": "Join the Poll",
+    "shareTitle": "Join the Event",
     "shareText": "Click the link to join {{title}}!",
     "scanHint": "Scan the QR with your camera or share the link",
+    "unreachableTitle": "Phones can't open this address",
+    "unreachableBody": "The app is open on \"localhost\". So participants can connect, open the app from this computer's network address (e.g. http://192.168.1.20:8080) or set PUBLIC_URL on the server.",
     "copyLink": "Copy join link"
   },
   "results": {
@@ -348,6 +360,22 @@
     "topNHint": "How many words the cloud shows. The rest are still recorded.",
     "profanityFilter": "Apply the built-in profanity filter",
     "allowRepeats": "Let one person send the same word more than once"
+  },
+  "import": {
+    "title": "Import questions from a file",
+    "subtitle": "Bring in questions from an Excel, Word or PDF file",
+    "formats": "📋 Supported formats",
+    "excelLayout": "Question | Option1 | Option2 | Option3 | Option4 | Correct (1-4)",
+    "textLayout": "1. Question text here\nA) Option 1\nB) Option 2\nC) Option 3\nD) Option 4\nAnswer: A",
+    "reading": "Reading the file...",
+    "choose": "Click to choose a file",
+    "extensions": ".xlsx, .docx or .pdf",
+    "unsupported": "Unsupported file type. Use Excel (.xlsx), Word (.docx) or PDF (.pdf).",
+    "noQuestions": "No valid questions found in the file. Check the format guide.",
+    "readFailed": "The file could not be read. Make sure it is not damaged or password-protected.",
+    "found": "{{count}} questions found",
+    "previewHint": "Review them below",
+    "importButton": "Import {{count}} questions"
   },
   "contentTypes": {
     "contest": {

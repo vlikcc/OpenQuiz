@@ -3,16 +3,17 @@ import { X, Copy, Share2, Users, CheckCircle, Link } from 'lucide-react';
 import { realtimeService } from '../services/realtimeService';
 import { pollService } from '../services/pollService';
 import { useTranslation } from 'react-i18next';
-import { voterJoinUrl } from '../utils/sessionRoute';
+import { useJoinUrl } from '../hooks/useJoinUrl';
+import JoinQrCode from './JoinQrCode';
+import UnreachableJoinWarning from './UnreachableJoinWarning';
 
 export default function QrModal({ pollId, onClose, title, joinCode: joinCodeProp }) {
   const { t } = useTranslation();
   const [participantCount, setParticipantCount] = useState(0);
   const [copied, setCopied] = useState(false);
   const [joinCode, setJoinCode] = useState(joinCodeProp || '');
-  const [qrImageUrl, setQrImageUrl] = useState('');
 
-  const joinUrl = voterJoinUrl(window.location.origin, { code: joinCode, pollId });
+  const { joinUrl, reachable } = useJoinUrl({ code: joinCode, pollId });
 
   useEffect(() => {
     let active = true;
@@ -26,14 +27,6 @@ export default function QrModal({ pollId, onClose, title, joinCode: joinCodeProp
     });
     return () => { active = false; unsubPromise.then((u) => u && u()); };
   }, [pollId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    import('qrcode').then((mod) => mod.default.toDataURL(joinUrl, { width: 448, margin: 1, errorCorrectionLevel: 'M' }))
-      .then((url) => { if (!cancelled) setQrImageUrl(url); })
-      .catch(() => { if (!cancelled) setQrImageUrl(''); });
-    return () => { cancelled = true; };
-  }, [joinUrl]);
 
   const handleCopyLink = async () => {
     try {
@@ -88,12 +81,10 @@ export default function QrModal({ pollId, onClose, title, joinCode: joinCodeProp
           </div>
 
           <div className="bg-white p-4 rounded-xl border-2 border-slate-100 shadow-inner mb-4">
-            {qrImageUrl ? (
-              <img src={qrImageUrl} alt={t('qr.title')} className="w-56 h-56 object-contain" />
-            ) : (
-              <div className="w-56 h-56 bg-slate-100 rounded-lg" />
-            )}
+            <JoinQrCode url={joinUrl} alt={t('qr.imageAlt')} />
           </div>
+
+          {!reachable && <UnreachableJoinWarning className="mb-4" />}
 
           <div className="w-full bg-slate-50 rounded-xl p-3 mb-4">
             <div className="flex items-center gap-2 text-slate-500 text-xs mb-2">

@@ -39,7 +39,7 @@ async function attemptRefresh() {
   return refreshPromise;
 }
 
-async function request(method, path, body = NO_BODY, { auth = true, form = false } = {}) {
+async function request(method, path, body = NO_BODY, { auth = true, form = false, upgradePrompt = true } = {}) {
   const headers = { Accept: 'application/json' };
   let payload;
   if (body !== NO_BODY) {
@@ -85,7 +85,7 @@ async function request(method, path, body = NO_BODY, { auth = true, form = false
         attempted: err?.attempted,
         requiredPlan: err?.requiredPlan,
       };
-      planLimitHandler?.(error.planLimit);
+      if (upgradePrompt) planLimitHandler?.(error.planLimit);
     }
 
     throw error;

@@ -23,6 +23,12 @@ vi.mock('../services/reactionService', () => ({ reactionService: { tally: vi.fn(
 vi.mock('../services/realtimeService', () => ({
   realtimeService: { subscribe: vi.fn(() => Promise.resolve(() => {})) },
 }));
+vi.mock('../services/infoService', () => ({
+  infoService: { get: vi.fn(() => Promise.resolve({ publicUrl: 'https://quiz.example.com' })) },
+}));
+vi.mock('qrcode', () => ({
+  default: { toDataURL: vi.fn(() => Promise.resolve('data:image/png;base64,qq')) },
+}));
 
 const POLL = {
   id: 'poll-1',
@@ -51,5 +57,16 @@ describe('PresenterMode keyboard', () => {
 
     await userEvent.keyboard('{ArrowRight}');
     await waitFor(() => expect(pollService.nextQuestion).toHaveBeenCalledWith('poll-1'));
+  });
+});
+
+describe('PresenterMode waiting room', () => {
+  it('puts a scannable join QR on the projector', async () => {
+    pollService.get.mockResolvedValue({ ...POLL, status: POLL_STATUS_VALUE.waiting });
+    render(<PresenterMode pollId="poll-1" onExit={vi.fn()} showToast={vi.fn()} />);
+
+    expect(await screen.findByAltText('Katılım QR kodu')).toHaveAttribute('src', 'data:image/png;base64,qq');
+    expect(screen.getByText('Katılmak için telefonunuzla QR kodu okutun')).toBeInTheDocument();
+    expect(await screen.findByText('ya da quiz.example.com adresine girip bu kodu yazın:')).toBeInTheDocument();
   });
 });

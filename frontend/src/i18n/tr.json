@@ -141,6 +141,8 @@
     "shareResults": "Sonuç linkini kopyala",
     "shareResultsCopied": "Sonuç linki kopyalandı",
     "disableShare": "Sonuç paylaşımını kapat",
+    "confirmDisableShare": "\"{{title}}\" için sonuç linki devre dışı kalacak; linke sahip olanlar artık sonuçları göremeyecek. Emin misiniz?",
+    "shareDisabled": "Sonuç paylaşımı kapatıldı",
     "resultsUnavailable": "Bu sonuç linki kullanılamıyor.",
     "joinFailed": "Bu oda kodu bulunamadı.",
     "helpTitle": "Yardım",
@@ -183,12 +185,16 @@
     "answerFailed": "Cevap gönderilemedi",
     "submitFailed": "Gönderilemedi",
     "timeUp": "SÜRE DOLDU",
-    "secondsLeft": "{{n}} sn"
+    "secondsLeft": "{{n}} sn",
+    "sessionFull": "Bu oturum dolu: katılımcı sınırına ulaşıldı.",
+    "joinFailed": "Oturuma katılınamadı. Lütfen tekrar deneyin."
   },
   "presenter": {
     "waitingRoomTitle": "Bekleme Odası",
+    "scanToJoin": "Katılmak için telefonunuzla QR kodu okutun",
+    "orEnterCode": "ya da {{host}} adresine girip bu kodu yazın:",
     "peopleJoined": "{{count}} kişi katıldı.",
-    "startContest": "Yarışmayı Başlat",
+    "start": "Başlat",
     "questionOf": "Soru {{current}} / {{total}}",
     "results": "Sonuçlar",
     "answers": "Cevaplar ({{n}})",
@@ -235,7 +241,7 @@
     "loadError": "Yüklenemedi"
   },
   "waiting": {
-    "welcome": "Hoş geldin, {{name}}! 👋",
+    "welcome": "Hoş geldin, <name>{{name}}</name>! 👋",
     "waiting": "katılımcı bekleniyor",
     "managerWaiting": "Yönetici bekleniyor",
     "managerHint": "Yarışma yönetici tarafından başlatıldığında sorular otomatik olarak görünecek.",
@@ -282,16 +288,22 @@
     "ctaDescription": "Kredi kartı gerektirmez. Ücretsiz planla başlayın, ihtiyacınız artınca yükseltin.",
     "ctaGoogleLogin": "Google ile Giriş Yap",
     "pricing": "Fiyatlandırma",
-    "footer": "© 2025 Open Quiz. Tüm hakları saklıdır."
+    "footer": "© 2025 Open Quiz. Tüm hakları saklıdır.",
+    "joinTitle": "Bir etkinliğe mi katılıyorsunuz? Oda kodunu girin",
+    "joinPlaceholder": "Oda kodu",
+    "joinButton": "Katıl"
   },
   "qr": {
-    "title": "Yarışmaya Katıl",
+    "title": "Etkinliğe Katıl",
+    "imageAlt": "Katılım QR kodu",
     "participantsWaiting": "{{count}} katılımcı bekleniyor",
     "shareLink": "veya linki paylaş",
     "shareButton": "Linki Paylaş",
-    "shareTitle": "Yarışmaya Katıl",
-    "shareText": "{{title}} yarışmasına katılmak için linke tıkla!",
+    "shareTitle": "Etkinliğe Katıl",
+    "shareText": "Katılmak için linke tıkla: {{title}}",
     "scanHint": "Telefonun kamerasıyla QR'ı okut veya linki paylaş",
+    "unreachableTitle": "Telefonlar bu adresi açamaz",
+    "unreachableBody": "Uygulama \"localhost\" üzerinden açık. Katılımcıların bağlanabilmesi için uygulamayı bilgisayarın ağ adresinden açın (ör. http://192.168.1.20:8080) ya da sunucuda PUBLIC_URL ayarını yapın.",
     "copyLink": "Katılım linkini kopyala"
   },
   "results": {
@@ -348,6 +360,22 @@
     "topNHint": "Buluta kaç kelime sığsın? Geri kalanlar kayda geçmeye devam eder.",
     "profanityFilter": "Yerleşik küfür filtresini uygula",
     "allowRepeats": "Aynı kişi aynı kelimeyi birden fazla gönderebilsin"
+  },
+  "import": {
+    "title": "Dosyadan Soru Yükle",
+    "subtitle": "Excel, Word veya PDF dosyasından soru içe aktarın",
+    "formats": "📋 Desteklenen Formatlar",
+    "excelLayout": "Soru | Seçenek1 | Seçenek2 | Seçenek3 | Seçenek4 | Doğru (1-4)",
+    "textLayout": "1. Soru metni burada\nA) Seçenek 1\nB) Seçenek 2\nC) Seçenek 3\nD) Seçenek 4\nCevap: A",
+    "reading": "Dosya okunuyor...",
+    "choose": "Dosya seçmek için tıklayın",
+    "extensions": ".xlsx, .docx veya .pdf",
+    "unsupported": "Desteklenmeyen dosya formatı. Excel (.xlsx), Word (.docx) veya PDF (.pdf) kullanın.",
+    "noQuestions": "Dosyada geçerli soru bulunamadı. Format rehberini kontrol edin.",
+    "readFailed": "Dosya okunamadı. Dosyanın bozuk veya şifreli olmadığından emin olun.",
+    "found": "{{count}} soru bulundu",
+    "previewHint": "Aşağıda önizleme yapabilirsiniz",
+    "importButton": "{{count}} Soruyu İçe Aktar"
   },
   "contentTypes": {
     "contest": {

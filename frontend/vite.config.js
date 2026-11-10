@@ -9,6 +9,7 @@ const VENDOR_CHUNKS = {
   'vendor-katex': ['katex', 'react-markdown', 'rehype-katex', 'remark-math'],
   'vendor-office': ['xlsx', 'mammoth'],
   'vendor-pdf': ['jspdf', 'jspdf-autotable'],
+  'vendor-pdfreader': ['pdfjs-dist'],
   'vendor-wordcloud': ['d3-cloud', 'd3-selection'],
   'vendor-realtime': ['@microsoft/signalr'],
   'vendor-react': ['react', 'react-dom', 'react-i18next', 'i18next'],

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users, Loader2, Clock, Trophy } from 'lucide-react';
 import { CONTENT_TYPES, POLL_TYPE_KEY } from '../config/constants';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 export default function WaitingRoom({ poll, participantCount, userName, branding = null }) {
     const { t } = useTranslation();
@@ -51,9 +51,11 @@ export default function WaitingRoom({ poll, participantCount, userName, branding
             {userName && (
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-3 mb-6">
                     <p className="text-lg">
-                        {t('waiting.welcome', { name: '' }).split('{{name}}')[0]}
-                        <span className="font-bold text-yellow-300">{userName}</span>
-                        ! 👋
+                        <Trans
+                            i18nKey="waiting.welcome"
+                            values={{ name: userName }}
+                            components={{ name: <span className="font-bold text-yellow-300" /> }}
+                        />
                     </p>
                 </div>
             )}

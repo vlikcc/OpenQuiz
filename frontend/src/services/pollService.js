@@ -19,7 +19,8 @@ export const pollService = {
   nextQuestion: (id) => api.post(`/api/polls/${id}/next-question`),
   prevQuestion: (id) => api.post(`/api/polls/${id}/prev-question`),
   end: (id) => api.post(`/api/polls/${id}/end`),
-  join: (id, userName) => api.post(`/api/polls/${id}/join`, { userName }, { auth: false }),
+  /** A full room is the owner's plan limit, not something the participant can upgrade. */
+  join: (id, userName) => api.post(`/api/polls/${id}/join`, { userName }, { auth: false, upgradePrompt: false }),
 
   listCollaborators: (id) => api.get(`/api/polls/${id}/collaborators`),
   addCollaborator: (id, email) => api.post(`/api/polls/${id}/collaborators`, { email }),

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CheckCircle2, XCircle, Loader2, Send, TimerOff } from 'lucide-react';
 import { CONTENT_TYPES, POLL_TYPE_KEY, POLL_STATUS_KEY, QUESTION_TYPE_KEY } from '../config/constants';
+import { EntitlementKeys } from '../config/entitlementKeys';
 import { pollService } from '../services/pollService';
 import { voteService } from '../services/voteService';
 import { wordcloudService } from '../services/wordcloudService';
@@ -27,6 +28,8 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
   const [openAnswer, setOpenAnswer] = useState('');
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState(null);
   const [branding, setBranding] = useState(null);
   // The server decides when a question closes; this only tracks how far the
   // local clock is from the server's so the countdown agrees with that decision.
@@ -108,11 +111,21 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
     if (!userName.trim()) return;
     localStorage.setItem('voterName', userName);
     if (!isRegistered) {
-      try { await pollService.join(pollId, userName); setIsRegistered(true); }
-      catch (err) { console.warn('join failed', err); }
+      setIsJoining(true);
+      setJoinError(null);
+      try {
+        await pollService.join(pollId, userName);
+        setIsRegistered(true);
+      } catch (err) {
+        const roomFull = err.planLimit?.limitKey === EntitlementKeys.LimitParticipantsPerSession;
+        setJoinError(t(roomFull ? 'voter.sessionFull' : 'voter.joinFailed'));
+        return;
+      } finally {
+        setIsJoining(false);
+      }
     }
     setStep('vote');
-  }, [userName, pollId, isRegistered]);
+  }, [userName, pollId, isRegistered, t]);
 
   const submitVote = useCallback(async (indices) => {
     setIsSubmitting(true);
@@ -246,7 +259,11 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
           <form onSubmit={handleStart}>
             <label htmlFor="voter-name" className="block text-sm font-medium text-slate-600 mb-2">{t('voter.yourName')}</label>
             <input id="voter-name" type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full p-4 border-2 border-slate-200 rounded-xl mb-4 text-center font-bold text-lg focus:border-indigo-500 outline-none" placeholder={t('voter.yourName')} required />
-            <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg">{t('voter.join')}</button>
+            <button type="submit" disabled={isJoining} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-60">
+              {isJoining && <Loader2 size={20} className="animate-spin" />}
+              {t('voter.join')}
+            </button>
+            {joinError && <p role="alert" className="mt-4 text-sm font-medium text-red-600">{joinError}</p>}
           </form>
           {!branding?.hideOpenQuizBranding && (
             <p className="mt-6 text-xs text-slate-400">{t('waiting.poweredBy')}</p>

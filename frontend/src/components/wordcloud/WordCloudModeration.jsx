@@ -16,26 +16,26 @@ export default function WordCloudModeration({ index, moderation, onChange }) {
   const blockedCount = splitBlacklist(moderation.blacklist).length;
 
   return (
-    <div className="border border-sky-200 rounded-lg bg-white overflow-hidden">
+    <div className="border border-sky-200 dark:border-sky-900 rounded-lg bg-white dark:bg-slate-800 overflow-hidden">
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
-        className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-sky-50"
+        className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-sky-50 dark:hover:bg-sky-950/30"
       >
-        <span className="flex items-center gap-2 text-sm font-bold text-sky-800">
+        <span className="flex items-center gap-2 text-sm font-bold text-sky-800 dark:text-sky-300">
           <ShieldCheck size={16} /> {t('moderation.title')}
         </span>
-        <span className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           {t('moderation.summary', { top: moderation.topN, blocked: blockedCount })}
           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </span>
       </button>
 
       {isOpen && (
-        <div className="p-3 pt-0 space-y-3 border-t border-sky-100">
+        <div className="p-3 pt-0 space-y-3 border-t border-sky-100 dark:border-sky-900">
           <div>
-            <label htmlFor={`blacklist-${index}`} className="block text-xs font-bold text-slate-500 uppercase mb-1 mt-3">
+            <label htmlFor={`blacklist-${index}`} className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 mt-3">
               {t('moderation.blacklist')}
             </label>
             <input
@@ -44,14 +44,14 @@ export default function WordCloudModeration({ index, moderation, onChange }) {
               value={moderation.blacklist}
               onChange={(e) => set('blacklist', e.target.value)}
               placeholder={t('moderation.blacklistPlaceholder')}
-              className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-sky-500"
+              className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg outline-none focus:border-sky-500"
             />
             <p className="mt-1 text-xs text-slate-400">{t('moderation.blacklistHint')}</p>
           </div>
 
           <div className="flex items-end gap-4">
             <div className="w-28">
-              <label htmlFor={`topn-${index}`} className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label htmlFor={`topn-${index}`} className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
                 {t('moderation.topN')}
               </label>
               <input
@@ -61,7 +61,7 @@ export default function WordCloudModeration({ index, moderation, onChange }) {
                 max="500"
                 value={moderation.topN}
                 onChange={(e) => set('topN', parseInt(e.target.value, 10) || 50)}
-                className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-sky-500 text-center font-bold"
+                className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg outline-none focus:border-sky-500 text-center font-bold"
               />
             </div>
             <p className="flex-1 text-xs text-slate-400 pb-2">{t('moderation.topNHint')}</p>
@@ -74,7 +74,7 @@ export default function WordCloudModeration({ index, moderation, onChange }) {
               onChange={(e) => set('profanityFilter', e.target.checked)}
               className="w-5 h-5 accent-sky-600 cursor-pointer"
             />
-            <span className="text-sm font-medium text-slate-700">{t('moderation.profanityFilter')}</span>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('moderation.profanityFilter')}</span>
           </label>
 
           <label className="flex items-center gap-2 cursor-pointer">
@@ -84,7 +84,7 @@ export default function WordCloudModeration({ index, moderation, onChange }) {
               onChange={(e) => set('allowDuplicatesFromSameUser', e.target.checked)}
               className="w-5 h-5 accent-sky-600 cursor-pointer"
             />
-            <span className="text-sm font-medium text-slate-700">{t('moderation.allowRepeats')}</span>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t('moderation.allowRepeats')}</span>
           </label>
         </div>
       )}

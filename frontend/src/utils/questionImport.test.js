@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseQuestionRows } from './questionImport';
+import { parseQuestionRows, parseQuestionText } from './questionImport';
 
 const HEADER = ['Question', 'Option1', 'Option2', 'Option3', 'Option4', 'Correct (1-4)'];
 
@@ -73,5 +73,46 @@ describe('parseQuestionRows', () => {
     ]);
 
     expect(question.options).toHaveLength(6);
+  });
+});
+
+describe('parseQuestionText', () => {
+  it('reads blank-line separated questions with a letter answer', () => {
+    const questions = parseQuestionText(
+      '1. Başkent neresi?\nA) İstanbul\nB) Ankara\nCevap: B\n\n2. 2 + 2 = ?\nA) 3\nB) 4\nC) 5\nAnswer: 2',
+    );
+
+    expect(questions).toEqual([
+      { text: 'Başkent neresi?', options: ['İstanbul', 'Ankara'], correctIndex: 1 },
+      { text: '2 + 2 = ?', options: ['3', '4', '5'], correctIndex: 1 },
+    ]);
+  });
+
+  it('splits on the next question number when there are no blank lines', () => {
+    const questions = parseQuestionText('1. Bir\nA) a\nB) b\nCevap: A\n2. İki\nA) c\nB) d\nCevap: B');
+
+    expect(questions.map((q) => q.text)).toEqual(['Bir', 'İki']);
+    expect(questions[1].correctIndex).toBe(1);
+  });
+
+  it('does not mistake a question starting with A–D for an option', () => {
+    const [question] = parseQuestionText('Ankara hangi bölgededir?\nA) Ege\nB. İç Anadolu\nDoğru: B');
+
+    expect(question.text).toBe('Ankara hangi bölgededir?');
+    expect(question.options).toEqual(['Ege', 'İç Anadolu']);
+    expect(question.correctIndex).toBe(1);
+  });
+
+  it('joins wrapped question and option lines', () => {
+    const [question] = parseQuestionText(
+      '1. Uzun bir soru\nikinci satırda devam ediyor\nA) Uzun bir\nseçenek\nB) Kısa\nCevap: A\nAçıklama satırı',
+    );
+
+    expect(question.text).toBe('Uzun bir soru ikinci satırda devam ediyor');
+    expect(question.options).toEqual(['Uzun bir seçenek', 'Kısa']);
+  });
+
+  it('skips blocks without a question or enough options', () => {
+    expect(parseQuestionText('1. Tek seçenek\nA) a\nCevap: A\n\nSadece metin')).toEqual([]);
   });
 });

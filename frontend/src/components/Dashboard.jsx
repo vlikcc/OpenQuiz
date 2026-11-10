@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useState, useEffect } from 'react';
-import { Trash2, Smartphone, Users, AlertTriangle, Copy, CopyPlus, QrCode, Loader2, Edit2, BarChart3, Lock, CreditCard, Link, RotateCcw } from 'lucide-react';
+import { Trash2, Smartphone, Users, AlertTriangle, Copy, CopyPlus, QrCode, Loader2, Edit2, BarChart3, Lock, CreditCard, Link, Link2Off, RotateCcw } from 'lucide-react';
 import { CONTENT_TYPES, POLL_TYPE_KEY, POLL_STATUS_KEY } from '../config/constants';
 import { EntitlementKeys } from '../config/entitlementKeys';
 import { PLAN_LABEL_I18N } from '../config/planLabels';
@@ -158,6 +158,17 @@ export default function Dashboard({
     }
   };
 
+  const handleDisableShare = async (poll) => {
+    if (!confirm(t('session.confirmDisableShare', { title: poll.title || t('common.untitled') }))) return;
+    try {
+      await pollService.disableResultsShare(poll.id);
+      showToast(t('session.shareDisabled'));
+      await loadPage(1);
+    } catch (err) {
+      showToast(err.message || t('common.errorOccurred'), 'error');
+    }
+  };
+
   const handleSaved = async () => {
     setComposer(null);
     await loadPage(1);
@@ -294,7 +305,10 @@ export default function Dashboard({
                     <button onClick={() => onNavigate('voter', poll.id)} className="py-2 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs"><Smartphone size={14} /> {t('dashboard.test')}</button>
                     <button onClick={() => handleShowResults(poll)} className="py-2 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs"><BarChart3 size={14} /> {t('dashboard.results')}</button>
                     {canAuthor && ended && (
-                      <button onClick={() => handleShareResults(poll)} className="col-span-3 py-2 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs"><Link size={14} /> {t('session.shareResults')}</button>
+                      <button onClick={() => handleShareResults(poll)} className={`${poll.hasResultsShare ? 'col-span-2' : 'col-span-3'} py-2 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs`}><Link size={14} /> {t('session.shareResults')}</button>
+                    )}
+                    {canAuthor && poll.hasResultsShare && (
+                      <button aria-label={t('session.disableShare')} title={t('session.disableShare')} onClick={() => handleDisableShare(poll)} className={`${ended ? '' : 'col-span-3'} py-2 border border-red-200 dark:border-red-900 text-red-500 dark:text-red-400 rounded-lg flex items-center justify-center gap-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs`}><Link2Off size={14} />{!ended && t('session.disableShare')}</button>
                     )}
                   </div>
                 </div>

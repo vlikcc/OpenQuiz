@@ -91,13 +91,13 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
 
   if (!poll && featureKey && !can(featureKey)) {
     return (
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-indigo-50 max-w-lg mx-auto text-center">
-        <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Lock size={26} className="text-amber-600" />
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl border border-indigo-50 dark:border-slate-700 max-w-lg mx-auto text-center">
+        <div className="w-14 h-14 bg-amber-100 dark:bg-amber-900/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Lock size={26} className="text-amber-600 dark:text-amber-400" />
         </div>
-        <h2 className="text-lg font-bold text-slate-800 mb-2">{t('billing.featureLockedTitle')}</h2>
-        <p className="text-slate-500 mb-6">{t(FEATURE_LOCKED_I18N[featureKey])}</p>
-        <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">{t('billing.featureLockedTitle')}</h2>
+        <p className="text-slate-500 dark:text-slate-400 mb-6">{t(FEATURE_LOCKED_I18N[featureKey])}</p>
+        <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 dark:text-slate-200 rounded-lg text-sm font-bold">
           {t('common.close')}
         </button>
       </div>
@@ -261,15 +261,15 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
         </Suspense>
       )}
 
-      <div className="flex justify-between items-center mb-4 sm:mb-6 border-b pb-4">
-        <h2 className="text-lg sm:text-xl font-bold text-slate-800">
+      <div className="flex justify-between items-center mb-4 sm:mb-6 border-b dark:border-slate-700 pb-4">
+        <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100">
           {typeConfig.icon} {ct(contentType)} {poll ? t('dashboard.editMode') : t('dashboard.createMode')}
         </h2>
-        <button aria-label={t('common.close')} onClick={onCancel} className="text-slate-400 hover:text-slate-600"><XCircle size={22} /></button>
+        <button aria-label={t('common.close')} onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><XCircle size={22} /></button>
       </div>
 
       <div className="mb-6">
-        <label className="block text-sm font-bold text-slate-700 mb-2">{t('dashboard.title')}</label>
+        <label className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">{t('dashboard.title')}</label>
         <input
           type="text"
           value={quizTitle}
@@ -299,7 +299,7 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
               value={collabEmail}
               onChange={(e) => setCollabEmail(e.target.value)}
               placeholder={t('session.addCollaborator')}
-              className="flex-1 p-2 text-sm border border-slate-300 dark:border-slate-600 dark:bg-slate-900 rounded-lg outline-none"
+              className="flex-1 p-2 text-sm border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 rounded-lg outline-none"
             />
             <button type="button" onClick={addCollaborator} className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">
               {t('common.save')}
@@ -327,13 +327,13 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
           </button>
           {showKatexHelp && (
             <div className="mt-3 space-y-4">
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
-                <h4 className="font-bold text-rose-800 mb-3">📐 KaTeX</h4>
+              <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-xl p-4">
+                <h4 className="font-bold text-rose-800 dark:text-rose-300 mb-3">📐 KaTeX</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
                   {KATEX_EXAMPLES.map((ex, i) => (
-                    <div key={i} className="bg-white p-2 rounded-lg border border-rose-100 text-center">
-                      <div className="text-lg mb-1"><KatexText text={`$${ex.code}$`} /></div>
-                      <code className="text-[10px] text-slate-500 block truncate">${ex.code}$</code>
+                    <div key={i} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-rose-100 dark:border-rose-900/50 text-center">
+                      <div className="text-lg mb-1 dark:text-slate-100"><KatexText text={`$${ex.code}$`} /></div>
+                      <code className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">${ex.code}$</code>
                     </div>
                   ))}
                 </div>
@@ -345,31 +345,32 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
 
       <div className="space-y-8">
         {questions.map((q, qIndex) => (
-          <div key={qIndex} className="bg-slate-50 p-6 rounded-xl border border-slate-200 relative">
-            <div className="absolute top-4 right-4 flex gap-2">
-              {contentType === 'exam' && q.questionType !== 'open' && (
-                <div className="flex items-center gap-1 bg-white rounded-lg px-2 py-1 border border-slate-200">
-                  <span className="text-xs text-slate-500">{t('dashboard.points')}</span>
-                  <input type="number" value={q.points || 10} onChange={(e) => updateField(qIndex, 'points', parseInt(e.target.value, 10) || 10)} className="w-12 text-center text-sm font-bold text-rose-600 outline-none" min="1" />
+          <div key={qIndex} className="bg-slate-50 dark:bg-slate-900/60 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              {contentType === 'exam' && (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => updateQuestionType(qIndex, 'multiple')} className={`px-4 py-2 rounded-lg text-sm font-medium ${q.questionType !== 'open' ? 'bg-rose-600 text-white' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}>{t('dashboard.addMultipleChoice')}</button>
+                  <button type="button" onClick={() => updateQuestionType(qIndex, 'open')} className={`px-4 py-2 rounded-lg text-sm font-medium ${q.questionType === 'open' ? 'bg-rose-600 text-white' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}>{t('dashboard.addOpenEnded')}</button>
                 </div>
               )}
-              <button aria-label={t('session.saveToBank')} onClick={() => saveQuestionToBank(q)} className="text-indigo-400 hover:text-indigo-600 p-2"><BookMarked size={20} /></button>
-              <button aria-label={t('dashboard.removeQuestion')} onClick={() => removeQuestion(qIndex)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button>
+              <div className="flex items-center gap-2 ml-auto">
+                {contentType === 'exam' && q.questionType !== 'open' && (
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-800 rounded-lg px-2 py-1 border border-slate-200 dark:border-slate-600">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{t('dashboard.points')}</span>
+                    <input type="number" value={q.points || 10} onChange={(e) => updateField(qIndex, 'points', parseInt(e.target.value, 10) || 10)} className="w-12 bg-transparent text-center text-sm font-bold text-rose-600 dark:text-rose-400 outline-none" min="1" />
+                  </div>
+                )}
+                <button type="button" aria-label={t('session.saveToBank')} onClick={() => saveQuestionToBank(q)} className="text-indigo-400 hover:text-indigo-600 p-2"><BookMarked size={20} /></button>
+                <button type="button" aria-label={t('dashboard.removeQuestion')} onClick={() => removeQuestion(qIndex)} className="text-red-400 hover:text-red-600 p-2"><Trash2 size={20} /></button>
+              </div>
             </div>
 
-            {contentType === 'exam' && (
-              <div className="flex gap-2 mb-4">
-                <button type="button" onClick={() => updateQuestionType(qIndex, 'multiple')} className={`px-4 py-2 rounded-lg text-sm font-medium ${q.questionType !== 'open' ? 'bg-rose-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>{t('dashboard.addMultipleChoice')}</button>
-                <button type="button" onClick={() => updateQuestionType(qIndex, 'open')} className={`px-4 py-2 rounded-lg text-sm font-medium ${q.questionType === 'open' ? 'bg-rose-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>{t('dashboard.addOpenEnded')}</button>
-              </div>
-            )}
-
             <div className="mb-4">
-              <div className="flex gap-4 mb-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><ImageIcon size={14} /> {t('dashboard.imageUrl')}</label>
+              <div className="flex flex-wrap gap-4 mb-3">
+                <div className="flex-1 min-w-[14rem]">
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 flex items-center gap-1"><ImageIcon size={14} /> {t('dashboard.imageUrl')}</label>
                   <div className="flex gap-2">
-                    <input type="text" value={q.image || ''} onChange={(e) => updateField(qIndex, 'image', e.target.value)} className="flex-1 p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg outline-none focus:border-indigo-500" placeholder="https://..." />
+                    <input type="text" value={q.image || ''} onChange={(e) => updateField(qIndex, 'image', e.target.value)} className="flex-1 min-w-0 p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg outline-none focus:border-indigo-500" placeholder="https://..." />
                     <label className="px-3 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap">
                       {t('session.uploadImage')}
                       <input
@@ -386,33 +387,33 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
                   </div>
                 </div>
                 <div className="w-24">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1"><Timer size={14} /> {t('dashboard.timeLimit')}</label>
-                  <input type="number" value={q.timeLimit || 30} onChange={(e) => updateField(qIndex, 'timeLimit', parseInt(e.target.value, 10) || 30)} className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-indigo-500 text-center font-bold" min="5" max="600" />
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 flex items-center gap-1"><Timer size={14} /> {t('dashboard.timeLimit')}</label>
+                  <input type="number" value={q.timeLimit || 30} onChange={(e) => updateField(qIndex, 'timeLimit', parseInt(e.target.value, 10) || 30)} className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg outline-none focus:border-indigo-500 text-center font-bold" min="5" max="600" />
                 </div>
                 {q.questionType === 'wordcloud' && (
                   <div className="w-24">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('dashboard.maxWords')}</label>
-                    <input type="number" value={q.maxWords || 3} onChange={(e) => updateField(qIndex, 'maxWords', parseInt(e.target.value, 10) || 3)} className="w-full p-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:border-sky-500 text-center font-bold" min="1" max="20" />
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">{t('dashboard.maxWords')}</label>
+                    <input type="number" value={q.maxWords || 3} onChange={(e) => updateField(qIndex, 'maxWords', parseInt(e.target.value, 10) || 3)} className="w-full p-2 text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg outline-none focus:border-sky-500 text-center font-bold" min="1" max="20" />
                   </div>
                 )}
               </div>
 
-              <label className="block text-xs font-bold text-indigo-600 uppercase mb-1">{t('dashboard.questionLabel', { n: qIndex + 1 })}</label>
+              <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-1">{t('dashboard.questionLabel', { n: qIndex + 1 })}</label>
               {contentType === 'exam' ? (
                 <KatexTextEditor value={q.text} onChange={(val) => updateField(qIndex, 'text', val)} placeholder={t('dashboard.questionPlaceholderExam')} rows={3} />
               ) : (
-                <input type="text" value={q.text} onChange={(e) => updateField(qIndex, 'text', e.target.value)} className="w-full p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none font-medium" placeholder={t('dashboard.questionPlaceholder')} />
+                <input type="text" value={q.text} onChange={(e) => updateField(qIndex, 'text', e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 dark:text-slate-100 rounded-lg focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900 outline-none font-medium" placeholder={t('dashboard.questionPlaceholder')} />
               )}
             </div>
 
             {q.questionType === 'open' ? (
               <div className="space-y-4">
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('dashboard.expectedAnswer')}</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">{t('dashboard.expectedAnswer')}</label>
                 <KatexTextEditor value={q.correctAnswer || ''} onChange={(val) => updateField(qIndex, 'correctAnswer', val)} placeholder={t('dashboard.expectedAnswerPlaceholder')} rows={2} />
               </div>
             ) : q.questionType === 'wordcloud' ? (
               <div className="space-y-3">
-                <div className="text-sm text-slate-500 italic bg-sky-50 border border-sky-200 rounded-lg p-3">
+                <div className="text-sm text-slate-500 dark:text-slate-400 italic bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 rounded-lg p-3">
                   {t('dashboard.wordcloudHint', { max: q.maxWords || 3 })}
                 </div>
                 <WordCloudModeration
@@ -424,24 +425,24 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
             ) : (
               <div className="space-y-4">
                 {contentType === 'survey' && (
-                  <div className="flex items-center gap-2 mb-2 bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                  <div className="flex items-center gap-2 mb-2 bg-emerald-50 dark:bg-emerald-950/30 p-3 rounded-lg border border-emerald-100 dark:border-emerald-900">
                     <input type="checkbox" id={`multi-${qIndex}`} checked={q.allowMultiple || false} onChange={(e) => updateField(qIndex, 'allowMultiple', e.target.checked)} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
-                    <label htmlFor={`multi-${qIndex}`} className="text-sm font-medium text-emerald-800 cursor-pointer">{t('dashboard.allowMultiple')}</label>
+                    <label htmlFor={`multi-${qIndex}`} className="text-sm font-medium text-emerald-800 dark:text-emerald-300 cursor-pointer">{t('dashboard.allowMultiple')}</label>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {q.options && q.options.map((opt, oIndex) => (
-                    <div key={oIndex} className={`flex items-center gap-2 p-2 rounded-lg border-2 bg-white ${typeConfig.hasCorrectAnswer && q.correctIndex === oIndex ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-transparent'}`}>
+                    <div key={oIndex} className={`flex items-center gap-2 p-2 rounded-lg border-2 bg-white dark:bg-slate-800 ${typeConfig.hasCorrectAnswer && q.correctIndex === oIndex ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-transparent'}`}>
                       {typeConfig.hasCorrectAnswer ? (
                         <input type="radio" name={`correct-${qIndex}`} checked={q.correctIndex === oIndex} onChange={() => setCorrectOption(qIndex, oIndex)} className="w-5 h-5 accent-emerald-600 cursor-pointer" />
                       ) : (
-                        <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-500 font-bold">{oIndex + 1}</div>
+                        <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs text-slate-500 dark:text-slate-300 font-bold">{oIndex + 1}</div>
                       )}
-                      <input type="text" value={opt} onChange={(e) => updateOption(qIndex, oIndex, e.target.value)} className="w-full p-2 outline-none text-sm" placeholder={t('dashboard.optionPlaceholder', { n: oIndex + 1 })} />
+                      <input type="text" value={opt} onChange={(e) => updateOption(qIndex, oIndex, e.target.value)} className="w-full p-2 bg-transparent dark:text-slate-100 outline-none text-sm" placeholder={t('dashboard.optionPlaceholder', { n: oIndex + 1 })} />
                     </div>
                   ))}
-                  <button type="button" onClick={() => addOption(qIndex)} className="flex items-center justify-center gap-2 p-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-indigo-400 hover:text-indigo-600 text-sm font-medium">
+                  <button type="button" onClick={() => addOption(qIndex)} className="flex items-center justify-center gap-2 p-2 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium">
                     <Plus size={16} /> {t('dashboard.addOption')}
                   </button>
                 </div>
@@ -457,27 +458,27 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
         </div>
       )}
 
-      <div className="mt-8 flex flex-col md:flex-row gap-4 justify-between items-center border-t pt-6">
+      <div className="mt-8 flex flex-col md:flex-row gap-4 justify-between items-center border-t dark:border-slate-700 pt-6">
         <div className="flex flex-wrap gap-3">
           {contentType === 'exam' ? (
             <>
-              <button type="button" onClick={() => addQuestion('multiple')} className="py-3 px-6 bg-slate-100 text-slate-700 rounded-xl font-bold flex items-center gap-2"><Plus size={20} /> {t('dashboard.addMultipleChoice')}</button>
-              <button type="button" onClick={() => addQuestion('open')} className="py-3 px-6 bg-rose-100 text-rose-700 rounded-xl font-bold flex items-center gap-2"><Plus size={20} /> {t('dashboard.addOpenEnded')}</button>
+              <button type="button" onClick={() => addQuestion('multiple')} className="py-3 px-6 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold flex items-center gap-2"><Plus size={20} /> {t('dashboard.addMultipleChoice')}</button>
+              <button type="button" onClick={() => addQuestion('open')} className="py-3 px-6 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded-xl font-bold flex items-center gap-2"><Plus size={20} /> {t('dashboard.addOpenEnded')}</button>
             </>
           ) : (
-            <button type="button" onClick={() => addQuestion(typeConfig.questionType === 'wordcloud' ? 'wordcloud' : 'multiple')} className="py-3 px-6 bg-slate-100 text-slate-700 rounded-xl font-bold flex items-center gap-2">
+            <button type="button" onClick={() => addQuestion(typeConfig.questionType === 'wordcloud' ? 'wordcloud' : 'multiple')} className="py-3 px-6 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold flex items-center gap-2">
               <Plus size={20} /> {t('dashboard.addQuestion')}
             </button>
           )}
           {contentType !== 'wordcloud' && (
-            <button type="button" onClick={() => setShowFileImport(true)} className="py-3 px-6 bg-emerald-100 text-emerald-700 rounded-xl font-bold flex items-center gap-2"><Upload size={20} /> {t('dashboard.importFromFile')}</button>
+            <button type="button" onClick={() => setShowFileImport(true)} className="py-3 px-6 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-xl font-bold flex items-center gap-2"><Upload size={20} /> {t('dashboard.importFromFile')}</button>
           )}
-          <button type="button" onClick={() => setShowBank((open) => !open)} className="py-3 px-6 bg-indigo-100 text-indigo-700 rounded-xl font-bold flex items-center gap-2">
+          <button type="button" onClick={() => setShowBank((open) => !open)} className="py-3 px-6 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold flex items-center gap-2">
             <BookMarked size={20} /> {t('session.addFromBank')}
           </button>
         </div>
         <div className="flex gap-4">
-          <button type="button" onClick={onCancel} className="py-3 px-6 text-slate-500 hover:bg-slate-50 rounded-xl font-medium">{t('common.cancel')}</button>
+          <button type="button" onClick={onCancel} className="py-3 px-6 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl font-medium">{t('common.cancel')}</button>
           <button onClick={handleSave} disabled={isSaving} className={`py-3 px-8 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 ${typeConfig.classes.solid}`}>
             {typeConfig.icon} {poll ? t('common.update') : t('common.save')}
           </button>

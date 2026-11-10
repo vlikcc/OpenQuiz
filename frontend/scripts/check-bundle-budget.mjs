@@ -15,6 +15,7 @@ const DEFERRED_CHUNKS = [
   'vendor-katex',
   'vendor-office',
   'vendor-pdf',
+  'vendor-pdfreader',
   'vendor-wordcloud',
 ];
 

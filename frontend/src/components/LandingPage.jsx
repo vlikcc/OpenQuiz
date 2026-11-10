@@ -14,6 +14,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import JoinByCodeForm from './JoinByCodeForm';
 
 const LandingPage = ({ onLogin, onPricing }) => {
   const { t } = useTranslation();
@@ -138,6 +139,10 @@ const LandingPage = ({ onLogin, onPricing }) => {
               >
                 {t("landing.ctaFeatures")}
               </a>
+            </div>
+
+            <div className="mt-10 sm:mt-12">
+              <JoinByCodeForm />
             </div>
           </div>
         </section>

@@ -7,7 +7,7 @@ import { POLL_TYPE_VALUE } from '../config/constants';
 import { EntitlementKeys } from '../config/entitlementKeys';
 
 vi.mock('../services/pollService', () => ({
-  pollService: { list: vi.fn(), get: vi.fn(), remove: vi.fn(), duplicate: vi.fn(), resetResults: vi.fn(), enableResultsShare: vi.fn() },
+  pollService: { list: vi.fn(), get: vi.fn(), remove: vi.fn(), duplicate: vi.fn(), resetResults: vi.fn(), enableResultsShare: vi.fn(), disableResultsShare: vi.fn() },
 }));
 vi.mock('../services/questionBankService', () => ({
   questionBankService: { list: vi.fn(() => Promise.resolve([])), create: vi.fn(), remove: vi.fn() },
@@ -199,6 +199,38 @@ describe('clearing results', () => {
     await screen.findByText('Yarışma 1');
 
     expect(screen.queryByRole('button', { name: 'Sonuçları temizle' })).not.toBeInTheDocument();
+  });
+});
+
+describe('stopping a results share', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('asks first, revokes the link and reloads the list', async () => {
+    const user = userEvent.setup();
+    const showToast = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    pollService.list.mockResolvedValue(page([{ ...summary(1), hasResultsShare: true }], false));
+    pollService.disableResultsShare.mockResolvedValue(null);
+
+    renderDashboard({ showToast });
+    await screen.findByText('Yarışma 1');
+
+    await user.click(screen.getByRole('button', { name: 'Sonuç paylaşımını kapat' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Yarışma 1'));
+    expect(pollService.disableResultsShare).toHaveBeenCalledWith('poll-1');
+    expect(showToast).toHaveBeenCalledWith('Sonuç paylaşımı kapatıldı');
+    expect(pollService.list).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
+
+  it('is only offered while the results are shared', async () => {
+    pollService.list.mockResolvedValue(page([summary(1)], false));
+
+    renderDashboard();
+    await screen.findByText('Yarışma 1');
+
+    expect(screen.queryByRole('button', { name: 'Sonuç paylaşımını kapat' })).not.toBeInTheDocument();
   });
 });
 
