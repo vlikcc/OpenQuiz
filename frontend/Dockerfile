@@ -2,6 +2,9 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+# SheetJS is not on the npm registry; the tarball ships with the repo so the
+# build never depends on reaching cdn.sheetjs.com.
+COPY vendor ./vendor
 RUN npm ci --no-audit --no-fund
 
 COPY . .
