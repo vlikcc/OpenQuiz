@@ -6,6 +6,7 @@
 #
 # Add --yes to skip the confirmation prompt (for scripted restore drills).
 
+# shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
 
 assume_yes=false

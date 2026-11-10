@@ -6,6 +6,7 @@
 #
 #   ./scripts/deploy.sh --check   # validate .env only, start nothing
 
+# shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
 
 CHECK_ONLY=false

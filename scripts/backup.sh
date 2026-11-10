@@ -5,6 +5,7 @@
 #
 #   15 3 * * * /opt/openquiz/scripts/backup.sh >> /var/log/openquiz-backup.log 2>&1
 
+# shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
 
 backup_dir="${BACKUP_DIR:-$(env_value BACKUP_DIR)}"
