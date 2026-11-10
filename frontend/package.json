@@ -13,7 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@microsoft/signalr": "^9.0.0",
+    "@microsoft/signalr": "^10.0.11",
     "@react-oauth/google": "^0.12.1",
     "d3-cloud": "^1.2.7",
     "d3-selection": "^3.0.0",
