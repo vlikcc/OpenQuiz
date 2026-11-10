@@ -120,6 +120,22 @@ describe('VoterMode realtime updates', () => {
     expect(screen.getByText('Katıldığın için teşekkürler, Ada!')).toBeInTheDocument();
   });
 
+  it('catches up on an end it missed while the connection was down', async () => {
+    pollService.get.mockResolvedValue(poll(0));
+    voteService.submit.mockResolvedValue({ isCorrect: true });
+    const handlers = captureRealtimeHandlers();
+    const user = await joinAsVoter();
+
+    await user.click(await screen.findByRole('button', { name: 'Seçenek A0' }));
+    await waitFor(() => expect(voteService.submit).toHaveBeenCalled());
+    pollService.get.mockResolvedValue({ ...poll(0), status: POLL_STATUS_VALUE.ended });
+    await act(async () => {
+      handlers().onReconnected();
+    });
+
+    expect(await screen.findByText('Etkinlik sona erdi.')).toBeInTheDocument();
+  });
+
   it('moves on and clears the selection when the presenter changes question', async () => {
     const handlers = captureRealtimeHandlers();
     const user = await joinAsVoter();

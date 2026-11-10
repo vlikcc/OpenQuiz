@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PresenterMode from './PresenterMode';
 import { pollService } from '../services/pollService';
+import { realtimeService } from '../services/realtimeService';
 import { scoreService } from '../services/scoreService';
 import { POLL_STATUS_VALUE, POLL_TYPE_VALUE, QUESTION_TYPE_VALUE } from '../config/constants';
 
@@ -96,7 +97,49 @@ describe('PresenterMode self-paced contest', () => {
 
     expect(await screen.findByText('Final Sıralaması')).toBeInTheDocument();
     expect(await screen.findByText('Ada')).toBeInTheDocument();
-    expect(scoreService.leaderboard).toHaveBeenLastCalledWith('poll-1', 100, { auth: true });
+    expect(scoreService.leaderboard).toHaveBeenLastCalledWith('poll-1', 1000, { auth: true });
+  });
+
+  it('redraws the standings on its own when a push from the hub is lost', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      pollService.get.mockResolvedValue(SELF_PACED);
+      scoreService.progress.mockResolvedValue({ participants: 3, finished: 1 });
+      scoreService.leaderboard.mockResolvedValue([]);
+      render(<PresenterMode pollId="poll-1" onExit={vi.fn()} showToast={vi.fn()} />);
+      expect(await screen.findByText('Tamamlayan: 1 / 3')).toBeInTheDocument();
+
+      scoreService.progress.mockResolvedValue({ participants: 3, finished: 3 });
+      scoreService.leaderboard.mockResolvedValue(STANDINGS);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(await screen.findByText('Tamamlayan: 3 / 3')).toBeInTheDocument();
+      expect(await screen.findByText('Grace')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refetches the standings after the hub connection comes back', async () => {
+    let handlers;
+    realtimeService.subscribe.mockImplementation((_pollId, registered) => {
+      handlers = registered;
+      return Promise.resolve(() => {});
+    });
+    pollService.get.mockResolvedValue(SELF_PACED);
+    scoreService.progress.mockResolvedValue({ participants: 3, finished: 1 });
+    scoreService.leaderboard.mockResolvedValue([]);
+    render(<PresenterMode pollId="poll-1" onExit={vi.fn()} showToast={vi.fn()} />);
+    expect(await screen.findByText('Tamamlayan: 1 / 3')).toBeInTheDocument();
+
+    scoreService.progress.mockResolvedValue({ participants: 3, finished: 2 });
+    scoreService.leaderboard.mockResolvedValue(STANDINGS);
+    await act(async () => {
+      handlers.onReconnected();
+    });
+
+    expect(await screen.findByText('Tamamlayan: 2 / 3')).toBeInTheDocument();
+    expect(await screen.findByText('Ada')).toBeInTheDocument();
   });
 });
 

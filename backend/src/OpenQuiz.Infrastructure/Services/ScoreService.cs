@@ -15,7 +15,7 @@ public class ScoreService : IScoreService
     public const int PublicTop = 20;
 
     /// <summary>Ceiling for the owner/admin path and the <c>top</c> query param.</summary>
-    public const int OwnerTop = 500;
+    public const int OwnerTop = 2000;
 
     private readonly OpenQuizDbContext _db;
     private readonly ICurrentUser _user;

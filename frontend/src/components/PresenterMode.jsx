@@ -24,7 +24,8 @@ const WordCloudCanvas = lazy(() => import('./wordcloud/WordCloudCanvas'));
 
 // What the wall has room for, and what the hub sends after a scored answer.
 const LEADERBOARD_SIZE = 10;
-const FINAL_STANDINGS_SIZE = 100;
+const FINAL_STANDINGS_SIZE = 1000;
+const STANDINGS_RESYNC_MS = 3_000;
 
 /** Keeps the running totals in step with the bursts arriving from the hub. */
 function bumpTally(tally, emoji) {
@@ -126,6 +127,8 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
   const [wordCloud, setWordCloud] = useState({ questionIndex: 0, terms: [] });
   const [scores, setScores] = useState([]);
   const [contestProgress, setContestProgress] = useState(null);
+  // Bumped to refetch what the hub normally pushes, for the times a push is lost.
+  const [resync, setResync] = useState(0);
   const [showQr, setShowQr] = useState(false);
   // A tab the presenter picked, remembered only for as long as the session is
   // in the same state — so ending a contest brings up the standings on its own.
@@ -179,7 +182,13 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
         setTimeout(() => setFloatingReactions((prev) => prev.filter((f) => f.id !== id)), 3000);
         setReactionTally((prev) => bumpTally(prev, r.emoji));
       },
-    });
+      onReconnected: () => {
+        if (!active) return;
+        pollService.get(pollId).then((p) => { if (active) setPoll((prev) => mergeAnswerKey(p, prev)); }).catch(() => {});
+        voteService.aggregates(pollId).then((a) => { if (active) setAggregates(a); }).catch(() => {});
+        setResync((n) => n + 1);
+      },
+    }, { asHost: true });
 
     return () => {
       active = false;
@@ -204,14 +213,30 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
     const final = selfPaced && statusKey === 'ended';
     scoreService.leaderboard(pollId, final ? FINAL_STANDINGS_SIZE : LEADERBOARD_SIZE, { auth: final })
       .then(setScores).catch(() => {});
-  }, [pollId, hasScores, statusKey, selfPaced]);
+  }, [pollId, hasScores, statusKey, selfPaced, resync]);
 
   // Joining does not touch the standings, so the head count is refetched when
   // the room's size changes rather than waiting for the next answer.
   useEffect(() => {
     if (!pollId || !selfPaced) return;
     scoreService.progress(pollId).then(setContestProgress).catch(() => {});
-  }, [pollId, selfPaced, statusKey, poll?.participantCount]);
+  }, [pollId, selfPaced, statusKey, poll?.participantCount, resync]);
+
+  // A self-paced room has no presenter clicks to redraw the screen, so a lost
+  // push would otherwise leave stale standings up until the next answer.
+  useEffect(() => {
+    if (!selfPaced || statusKey !== 'live') return undefined;
+    const timer = setInterval(() => setResync((n) => n + 1), STANDINGS_RESYNC_MS);
+    return () => clearInterval(timer);
+  }, [selfPaced, statusKey]);
+
+  // Self-paced tallies are no longer pushed on every answer (that would mean
+  // re-reading every vote in the room a thousand times a minute), so the same
+  // tick that refreshes the standings also refreshes the per-question counts.
+  useEffect(() => {
+    if (!pollId || !selfPaced || statusKey === 'waiting') return;
+    voteService.aggregates(pollId).then(setAggregates).catch(() => {});
+  }, [pollId, selfPaced, statusKey, resync]);
 
   // Refresh aggregates / open answers / wordcloud when question changes
   useEffect(() => {

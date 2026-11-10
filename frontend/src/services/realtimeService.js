@@ -5,6 +5,7 @@ import { tokenStore } from './tokenStore';
 let connection = null;
 let connectPromise = null;
 const subscriptions = new Map(); // pollId -> Set<handlers>
+const hostPolls = new Set(); // pollIds whose presenter screen is open
 
 function ensureConnection() {
   if (connection) return connection;
@@ -40,6 +41,11 @@ function ensureConnection() {
     for (const pollId of subscriptions.keys()) {
       try { await connection.invoke('JoinPoll', pollId); } catch { /* ignored */ }
     }
+    for (const pollId of hostPolls) {
+      try { await connection.invoke('JoinHost', pollId); } catch { /* ignored */ }
+    }
+    // Whatever was broadcast while the connection was down is gone for good.
+    dispatch('onReconnected');
   });
 
   return connection;
@@ -54,15 +60,23 @@ async function start() {
 }
 
 export const realtimeService = {
-  async subscribe(pollId, handlers) {
+  /**
+   * @param {string} pollId
+   * @param {object} handlers
+   * @param {{ asHost?: boolean }} [options] Presenter screens pass asHost so
+   *   standings and tallies land here instead of on every phone in the room.
+   */
+  async subscribe(pollId, handlers, { asHost = false } = {}) {
     if (!pollId) return () => {};
     let set = subscriptions.get(pollId);
     if (!set) { set = new Set(); subscriptions.set(pollId, set); }
     set.add(handlers);
+    if (asHost) hostPolls.add(pollId);
 
     try {
       await start();
       await connection.invoke('JoinPoll', pollId);
+      if (asHost) await connection.invoke('JoinHost', pollId);
     } catch (e) {
       console.warn('signalr subscribe failed', e);
     }
@@ -70,9 +84,11 @@ export const realtimeService = {
     return () => {
       set.delete(handlers);
       if (set.size === 0) {
+        const wasHost = hostPolls.delete(pollId);
         subscriptions.delete(pollId);
         if (connection && connection.state === signalR.HubConnectionState.Connected) {
           connection.invoke('LeavePoll', pollId).catch(() => {});
+          if (wasHost) connection.invoke('LeaveHost', pollId).catch(() => {});
         }
       }
     };
@@ -83,5 +99,6 @@ export const realtimeService = {
       try { await connection.stop(); } catch { /* noop */ }
       connection = null;
     }
+    hostPolls.clear();
   },
 };

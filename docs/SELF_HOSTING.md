@@ -130,11 +130,16 @@ in `appsettings.json` and can be overridden with environment variables:
 | Policy | Endpoints | Default |
 |---|---|---|
 | `Auth` | register, login, refresh, Google sign-in, password reset | 10 / minute |
-| `Participation` | poll fetch, join, votes, open answers, word cloud, aggregates | 240 / minute |
+| `Participation` | poll fetch, join, votes, open answers, word cloud, aggregates | 10000 / minute |
 | `Reactions` | emoji reactions | 300 / minute |
 
 ```bash
-RateLimiting__Participation__PermitLimit=480
+RateLimiting__Participation__PermitLimit=10000
+RateLimiting__Reactions__PermitLimit=6000
+# Under Postgres max_connections. A 1000-person hall needs roughly this many
+# in-flight query slots; the surplus waits in the pool instead of failing open.
+DB_POOL_SIZE=200
+POSTGRES_MAX_CONNECTIONS=300
 RateLimiting__Participation__WindowSeconds=60
 ```
 

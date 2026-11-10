@@ -22,6 +22,7 @@ RUN npm run build
 # 8080, so nothing in the web tier needs root or a privileged port.
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx-main.conf /etc/nginx/nginx.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/security-headers.conf
 EXPOSE 8080

@@ -92,9 +92,9 @@ public class VoteService : IVoteService
         if (moved || points > 0)
             await AwardPointsAsync(poll.Id, poll.SelfPaced, vote.UserName, points, moved ? next.ChargedMs : 0, ct);
 
-        var thisQ = await SingleQuestionAggregateAsync(poll.Id, question.Id, req.QuestionIndex, ct);
-        await _realtime.VoteCountsUpdatedAsync(poll.Id, thisQ);
-
+        // Per-question tallies are left for the presenter's periodic refresh:
+        // recomputing them here would re-read every vote in the room on every
+        // answer, which does not belong on the hot path of a thousand phones.
         return ToDto(vote, req.SelectedIndices);
     }
 
@@ -323,9 +323,13 @@ public class VoteService : IVoteService
     {
         await ScoreLedger.AccumulateAsync(_db, pollId, userName, points, elapsedMs, ct);
 
+        // Self-paced rooms redraw the standings on a timer: recomputing the top
+        // of the table on every answer would mean a thousand ranking queries a
+        // minute, each racing the next. Presenter-paced rooms still push live.
+        if (selfPaced) return;
+
         var standings = await _scores.LeaderboardAsync(pollId, LeaderboardSize, ct);
-        var progress = selfPaced ? await _scores.ContestProgressAsync(pollId, ct) : null;
-        await _realtime.LeaderboardUpdatedAsync(pollId, new LeaderboardUpdate(standings, progress));
+        await _realtime.LeaderboardUpdatedAsync(pollId, new LeaderboardUpdate(standings));
     }
 
     /// <summary>How much of the table a live screen shows.</summary>

@@ -27,12 +27,13 @@ public class RateLimitOptions
     /// <summary>
     /// Participation endpoints: join, votes, open answers, word cloud. A whole
     /// room usually shares one NAT address, so this budget is per venue rather
-    /// than per person.
+    /// than per person. Sized for a thousand phones joining and answering in
+    /// the same minute (look-up + join + progress + a wave of votes).
     /// </summary>
-    public WindowOptions Participation { get; set; } = new() { PermitLimit = 240, WindowSeconds = 60 };
+    public WindowOptions Participation { get; set; } = new() { PermitLimit = 10000, WindowSeconds = 60 };
 
     /// <summary>Emoji reactions, which are tapped far more often than votes.</summary>
-    public WindowOptions Reactions { get; set; } = new() { PermitLimit = 300, WindowSeconds = 60 };
+    public WindowOptions Reactions { get; set; } = new() { PermitLimit = 6000, WindowSeconds = 60 };
 
     public class WindowOptions
     {

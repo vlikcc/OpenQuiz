@@ -73,31 +73,36 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
       if (active) setBranding(row);
     }).catch(() => {});
 
+    const applyPoll = (p) => {
+      if (!active || !p) return;
+      setPoll(p);
+      setClockOffset(clockOffsetMs(p));
+      if (p.selfPaced) {
+        // Results were reset: whatever place this phone had is gone.
+        if (POLL_STATUS_KEY[p.status] === 'waiting') setProgress(null);
+        return;
+      }
+      const newQ = p.currentQuestionIndex ?? 0;
+      if (newQ !== currentQIndexRef.current) {
+        goToQuestion(newQ);
+        const key = `${pollId}_${newQ}`;
+        const voted = votedQuestionsRef.current.has(key);
+        setHasVotedForCurrent(voted);
+        if (!voted) {
+          setLastResult(null);
+          setStartTime(Date.now());
+          setOpenAnswer('');
+          setSelectedIndices([]);
+          wordCloudDraftRef.current = [];
+        }
+      }
+    };
+
     const unsubP = realtimeService.subscribe(pollId, {
-      onPollUpdated: (p) => {
-        if (!active) return;
-        setPoll(p);
-        setClockOffset(clockOffsetMs(p));
-        if (p.selfPaced) {
-          // Results were reset: whatever place this phone had is gone.
-          if (POLL_STATUS_KEY[p.status] === 'waiting') setProgress(null);
-          return;
-        }
-        const newQ = p.currentQuestionIndex ?? 0;
-        if (newQ !== currentQIndexRef.current) {
-          goToQuestion(newQ);
-          const key = `${pollId}_${newQ}`;
-          const voted = votedQuestionsRef.current.has(key);
-          setHasVotedForCurrent(voted);
-          if (!voted) {
-            setLastResult(null);
-            setStartTime(Date.now());
-            setOpenAnswer('');
-            setSelectedIndices([]);
-            wordCloudDraftRef.current = [];
-          }
-        }
-      },
+      onPollUpdated: applyPoll,
+      // A start, a next question or an end may have been broadcast while the
+      // phone was offline; without this it would sit on a screen that is over.
+      onReconnected: () => { pollService.get(pollId).then(applyPoll).catch(() => {}); },
     });
 
     return () => { active = false; unsubP.then((u) => u && u()); };
