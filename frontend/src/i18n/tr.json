@@ -154,7 +154,9 @@
     "helpExportBody": "Oturum bitince Sonuçlar’ı açın. CSV, Excel ve PDF planınıza bağlıdır.",
     "aboutTitle": "OpenQuiz hakkında",
     "themeLight": "Açık",
-    "themeDark": "Koyu"
+    "themeDark": "Koyu",
+    "selfPaced": "Otomatik soru geçişi",
+    "selfPacedHint": "Her katılımcı bir soruyu cevaplayınca hemen sonrakine geçer; yönetici yalnızca başlatır ve bitirir. Eşit puanda yarışmayı en hızlı tamamlayan kazanır."
   },
   "tabs": {
     "dashboard": "Ana Sayfa",
@@ -169,7 +171,8 @@
     "wrong": "YANLIŞ",
     "waitingForNext": "Sonraki soru için bekle...",
     "waitingForPresenter": "Sunucu sonraki soruya geçene kadar bekle...",
-    "ended": "Yarışma sona erdi.",
+    "ended": "Etkinlik sona erdi.",
+    "endedThanks": "Katıldığın için teşekkürler, {{name}}!",
     "question": "SORU",
     "open": "AÇIK UÇLU",
     "wordCloud": "KELİME BULUTU",
@@ -187,7 +190,11 @@
     "timeUp": "SÜRE DOLDU",
     "secondsLeft": "{{n}} sn",
     "sessionFull": "Bu oturum dolu: katılımcı sınırına ulaşıldı.",
-    "joinFailed": "Oturuma katılınamadı. Lütfen tekrar deneyin."
+    "joinFailed": "Oturuma katılınamadı. Lütfen tekrar deneyin.",
+    "finishedTitle": "Tamamladın!",
+    "yourScore": "Puanın: {{n}}",
+    "waitingForResults": "Sonuçlar için yöneticiyi bekle...",
+    "questionOfTotal": "SORU {{current}}/{{total}}"
   },
   "presenter": {
     "waitingRoomTitle": "Bekleme Odası",
@@ -208,7 +215,12 @@
     "reactions": "Reaksiyonlar",
     "started": "Yarışma başladı",
     "ended": "Yarışma sonlandı",
-    "prev": "Önceki"
+    "prev": "Önceki",
+    "selfPacedTitle": "Katılımcılar soruları kendi hızında cevaplıyor",
+    "finishedCount": "Tamamlayan: {{finished}} / {{total}}",
+    "finalStandings": "Final Sıralaması",
+    "answeredPerQuestion": "Soru {{n}}: {{count}} cevap",
+    "tieBreakHint": "Eşit puanda yarışmayı en hızlı tamamlayan önde."
   },
   "profile": {
     "logout": "Çıkış Yap",
@@ -340,7 +352,8 @@
     "sheetQuestions": "Sorular",
     "sheetOpen": "Açık uçlu",
     "sheetCloud": "Kelime bulutu",
-    "sheetVotes": "Oylar"
+    "sheetVotes": "Oylar",
+    "seconds": "{{n}} sn"
   },
   "grading": {
     "score": "Puan",

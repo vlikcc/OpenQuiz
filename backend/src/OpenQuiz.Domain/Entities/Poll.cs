@@ -19,6 +19,12 @@ public class Poll
     /// </summary>
     public DateTime? QuestionStartedAt { get; set; }
 
+    /// <summary>
+    /// Contest where each participant gets the next question as soon as they
+    /// answer the last one, instead of waiting for the presenter to advance.
+    /// </summary>
+    public bool SelfPaced { get; set; }
+
     public Guid CreatorId { get; set; }
     public User Creator { get; set; } = null!;
 

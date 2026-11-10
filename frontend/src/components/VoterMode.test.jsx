@@ -12,7 +12,7 @@ vi.mock('../services/pollService', () => ({
   pollService: { get: vi.fn(), join: vi.fn() },
 }));
 vi.mock('../services/voteService', () => ({
-  voteService: { submit: vi.fn(), submitOpen: vi.fn() },
+  voteService: { submit: vi.fn(), submitOpen: vi.fn(), progress: vi.fn() },
 }));
 vi.mock('../services/wordcloudService', () => ({ wordcloudService: { submit: vi.fn() } }));
 vi.mock('../services/reactionService', () => ({ reactionService: { send: vi.fn() } }));
@@ -102,6 +102,22 @@ describe('VoterMode realtime updates', () => {
 
     expect(screen.getByText('SORU 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Seçenek B1' })).toHaveClass('ring-2');
+  });
+
+  it('leaves the answer feedback for an end screen when the presenter finishes', async () => {
+    pollService.get.mockResolvedValue(poll(0));
+    voteService.submit.mockResolvedValue({ isCorrect: true });
+    const handlers = captureRealtimeHandlers();
+    const user = await joinAsVoter();
+
+    await user.click(await screen.findByRole('button', { name: 'Seçenek A0' }));
+    await waitFor(() => expect(voteService.submit).toHaveBeenCalled());
+    await act(async () => {
+      handlers().onPollUpdated({ ...poll(0), status: POLL_STATUS_VALUE.ended });
+    });
+
+    expect(await screen.findByText('Etkinlik sona erdi.')).toBeInTheDocument();
+    expect(screen.getByText('Katıldığın için teşekkürler, Ada!')).toBeInTheDocument();
   });
 
   it('moves on and clears the selection when the presenter changes question', async () => {
@@ -209,6 +225,85 @@ describe('VoterMode joining', () => {
 
     expect(await screen.findByText('SORU 2')).toBeInTheDocument();
     expect(pollService.join).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VoterMode after the session', () => {
+  it('tells a late scanner the event is over instead of asking for a name', async () => {
+    pollService.get.mockResolvedValue({ ...poll(0), status: POLL_STATUS_VALUE.ended });
+    captureRealtimeHandlers();
+    render(<VoterMode pollId={POLL_ID} showToast={vi.fn()} />);
+
+    expect(await screen.findByText('Etkinlik sona erdi.')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Adınız')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Nobody waits for the presenter in a self-paced contest: an answer opens the
+ * participant's next question straight away.
+ */
+describe('VoterMode self-paced contest', () => {
+  const contest = () => ({
+    ...poll(0),
+    type: POLL_TYPE_VALUE.contest,
+    selfPaced: true,
+    questions: [question(0, false), question(1, false)].map((q) => ({ ...q, points: 10 })),
+  });
+  const at = (questionIndex, overrides = {}) => {
+    const now = new Date().toISOString();
+    return { questionIndex, questionStartedAt: now, finished: false, points: 0, serverTime: now, ...overrides };
+  };
+
+  beforeEach(() => {
+    pollService.get.mockResolvedValue(contest());
+    pollService.join.mockResolvedValue({});
+    voteService.submit.mockResolvedValue({ isCorrect: true, createdAt: new Date().toISOString() });
+    captureRealtimeHandlers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens the next question as soon as an answer lands', async () => {
+    voteService.progress.mockResolvedValue(at(0));
+    const user = await joinAsVoter();
+
+    expect(await screen.findByText('SORU 1/2')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Seçenek A0' }));
+
+    expect(await screen.findByText('SORU 2/2')).toBeInTheDocument();
+    expect(screen.getByText('Soru metni 2')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('DOĞRU!');
+  });
+
+  it('shows the score once the last question is answered', async () => {
+    voteService.progress.mockResolvedValue(at(1, { points: 10 }));
+    const user = await joinAsVoter();
+
+    await user.click(await screen.findByRole('button', { name: 'Seçenek A1' }));
+
+    expect(await screen.findByText('Tamamladın!')).toBeInTheDocument();
+    expect(screen.getByText('Puanın: 20')).toBeInTheDocument();
+  });
+
+  it('moves past a question whose countdown ran out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    voteService.progress
+      .mockResolvedValueOnce(at(0, { questionStartedAt: new Date(Date.now() - 29_000).toISOString() }))
+      .mockResolvedValueOnce(at(1));
+
+    await joinAsVoter();
+    expect(await screen.findByText('SORU 1/2')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+
+    expect(await screen.findByText('SORU 2/2')).toBeInTheDocument();
+    expect(voteService.progress).toHaveBeenLastCalledWith(POLL_ID, 'Ada', 0);
+    expect(voteService.submit).not.toHaveBeenCalled();
   });
 });
 

@@ -13,4 +13,4 @@ public record ReactionTally(string Emoji, int Count);
 /// The standings as they stand, sent to a room after points change. Only the
 /// visible top is carried; the full table is still a request away.
 /// </summary>
-public record LeaderboardUpdate(List<ScoreEntry> Entries);
+public record LeaderboardUpdate(List<ScoreEntry> Entries, ContestProgress? Progress = null);

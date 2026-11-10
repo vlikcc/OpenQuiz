@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { CheckCircle2, XCircle, Loader2, Send, TimerOff } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Send, TimerOff, Trophy } from 'lucide-react';
 import { CONTENT_TYPES, POLL_TYPE_KEY, POLL_STATUS_KEY, QUESTION_TYPE_KEY } from '../config/constants';
 import { EntitlementKeys } from '../config/entitlementKeys';
 import { pollService } from '../services/pollService';
@@ -14,6 +14,10 @@ import WaitingRoom from './WaitingRoom';
 import WordCloudVoter from './wordcloud/WordCloudVoter';
 import { clockOffsetMs, deadlineFor, secondsLeft } from '../utils/questionClock';
 import { mediaUrl } from '../utils/mediaUrl';
+
+/** How the last answer went, shown briefly on the next question of a self-paced contest. */
+const FLASH_LABELS = { correct: 'voter.correct', wrong: 'voter.wrong', timeout: 'voter.timeUp' };
+const FLASH_STYLES = { correct: 'bg-emerald-500', wrong: 'bg-rose-500', timeout: 'bg-slate-500' };
 
 export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
   const { t } = useTranslation();
@@ -35,6 +39,10 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
   // local clock is from the server's so the countdown agrees with that decision.
   const [clockOffset, setClockOffset] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Self-paced contests: this participant's own question and clock, which the
+  // room-wide poll snapshot no longer carries.
+  const [progress, setProgress] = useState(null);
+  const [flash, setFlash] = useState(null);
   const votedQuestionsRef = useRef(new Set());
   const wordCloudDraftRef = useRef([]);
   // The SignalR subscription below is created once per poll, so its handler
@@ -70,6 +78,11 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
         if (!active) return;
         setPoll(p);
         setClockOffset(clockOffsetMs(p));
+        if (p.selfPaced) {
+          // Results were reset: whatever place this phone had is gone.
+          if (POLL_STATUS_KEY[p.status] === 'waiting') setProgress(null);
+          return;
+        }
         const newQ = p.currentQuestionIndex ?? 0;
         if (newQ !== currentQIndexRef.current) {
           goToQuestion(newQ);
@@ -90,10 +103,42 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
     return () => { active = false; unsubP.then((u) => u && u()); };
   }, [pollId, goToQuestion]);
 
+  const selfPaced = !!poll?.selfPaced;
+  const isLive = !!poll && POLL_STATUS_KEY[poll.status] === 'live';
+
+  const applyProgress = useCallback((next) => {
+    setProgress(next);
+    setClockOffset(clockOffsetMs(next));
+    goToQuestion(next.questionIndex);
+    setHasVotedForCurrent(false);
+    setSelectedIndices([]);
+  }, [goToQuestion]);
+
+  const syncProgress = useCallback(async (skipQuestionIndex = null) => {
+    try {
+      applyProgress(await voteService.progress(pollId, userName, skipQuestionIndex));
+    } catch (err) {
+      showToast(err.message || t('voter.voteFailed'), 'error');
+    }
+  }, [pollId, userName, applyProgress, showToast, t]);
+
+  useEffect(() => {
+    if (!selfPaced || !isLive || step !== 'vote' || progress) return;
+    voteService.progress(pollId, userName)
+      .then(applyProgress)
+      .catch((err) => showToast(err.message || t('voter.voteFailed'), 'error'));
+  }, [selfPaced, isLive, step, progress, pollId, userName, applyProgress, showToast, t]);
+
+  useEffect(() => {
+    if (!flash) return undefined;
+    const timer = setTimeout(() => setFlash(null), 1800);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
   const activeQuestion = poll?.questions?.[currentQIndex];
   const deadline = useMemo(
-    () => deadlineFor(poll, activeQuestion, clockOffset),
-    [poll, activeQuestion, clockOffset],
+    () => deadlineFor(selfPaced ? progress : poll, activeQuestion, clockOffset),
+    [selfPaced, progress, poll, activeQuestion, clockOffset],
   );
   const timeLeft = secondsLeft(deadline, nowMs);
 
@@ -139,16 +184,35 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
         responseTimeMs: Date.now() - startTime,
         userName,
       });
+      if (poll.selfPaced) {
+        // The answer's server timestamp is when the next question opened for
+        // this participant, so the countdown carries on without a round trip.
+        const nextIndex = currentQIndex + 1;
+        const finished = nextIndex >= poll.questions.length;
+        const earned = result.isCorrect ? (poll.questions[currentQIndex]?.points ?? 0) : 0;
+        setFlash({ kind: result.isCorrect ? 'correct' : 'wrong', id: Date.now() });
+        setProgress((prev) => ({
+          ...prev,
+          questionIndex: nextIndex,
+          questionStartedAt: finished ? null : result.createdAt,
+          finished,
+          points: (prev?.points ?? 0) + earned,
+        }));
+        goToQuestion(nextIndex);
+        setSelectedIndices([]);
+        return;
+      }
       const key = `${pollId}_${currentQIndex}`;
       votedQuestionsRef.current.add(key);
       setHasVotedForCurrent(true);
       setLastResult(typeCfg.hasCorrectAnswer ? (result.isCorrect ? 'correct' : 'wrong') : 'voted');
     } catch (err) {
       showToast(err.message || t('voter.voteFailed'), 'error');
+      if (poll.selfPaced) syncProgress();
     } finally {
       setIsSubmitting(false);
     }
-  }, [poll, pollId, currentQIndex, startTime, userName, showToast, t]);
+  }, [poll, pollId, currentQIndex, startTime, userName, showToast, t, goToQuestion, syncProgress]);
 
   const handleVote = useCallback((optionIndex) => {
     const q = poll.questions[currentQIndex];
@@ -207,6 +271,12 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
     const question = poll?.questions?.[currentQIndex];
     const questionType = question ? QUESTION_TYPE_KEY[question.questionType] : null;
 
+    if (poll?.selfPaced) {
+      if (selectedIndices.length > 0) return submitVote(selectedIndices);
+      setFlash({ kind: 'timeout', id: Date.now() });
+      return syncProgress(currentQIndex);
+    }
+
     if (questionType === 'open' && openAnswer.trim()) return handleOpenAnswer();
     if (questionType === 'wordcloud' && wordCloudDraftRef.current.length > 0) {
       return handleWordCloudSubmit(wordCloudDraftRef.current);
@@ -219,7 +289,7 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
     setHasVotedForCurrent(true);
     setLastResult('timeout');
     return undefined;
-  }, [poll, currentQIndex, openAnswer, selectedIndices, pollId, handleOpenAnswer, handleWordCloudSubmit, submitVote]);
+  }, [poll, currentQIndex, openAnswer, selectedIndices, pollId, handleOpenAnswer, handleWordCloudSubmit, submitVote, syncProgress]);
 
   const expired = timeLeft === 0;
   const handledExpiryRef = useRef(null);
@@ -239,6 +309,19 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
   const statusKey = POLL_STATUS_KEY[poll.status] || 'live';
   if (step === 'vote' && statusKey === 'waiting') {
     return <WaitingRoom poll={poll} participantCount={poll.participantCount || 0} userName={userName} branding={branding} />;
+  }
+
+  if (statusKey === 'ended') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center bg-gradient-to-br from-indigo-600 to-purple-700">
+        <div className="bg-white/20 backdrop-blur-md p-10 rounded-3xl shadow-2xl">
+          <Trophy size={64} className="mx-auto mb-4" />
+          <h2 className="text-3xl font-black mb-2">{t('voter.ended')}</h2>
+          {isRegistered && <p className="text-white/80">{t('voter.endedThanks', { name: userName })}</p>}
+          {selfPaced && progress && <p className="mt-3 text-2xl font-black">{t('voter.yourScore', { n: progress.points })}</p>}
+        </div>
+      </div>
+    );
   }
 
   if (step === 'name') {
@@ -268,6 +351,25 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
           {!branding?.hideOpenQuizBranding && (
             <p className="mt-6 text-xs text-slate-400">{t('waiting.poweredBy')}</p>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (selfPaced && !progress) {
+    return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
+  }
+
+  if (selfPaced && progress.finished) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center bg-gradient-to-br from-emerald-500 to-teal-600">
+        <div className="bg-white/20 backdrop-blur-md p-10 rounded-3xl shadow-2xl">
+          <Trophy size={64} className="mx-auto mb-4" />
+          <h2 className="text-4xl font-black mb-2">{t('voter.finishedTitle')}</h2>
+          <p className="text-2xl font-black mb-4">{t('voter.yourScore', { n: progress.points })}</p>
+          <div className="flex items-center justify-center gap-2 bg-black/20 px-4 py-2 rounded-full text-sm font-medium animate-pulse">
+            <Loader2 size={16} className="animate-spin" /> {t('voter.waitingForResults')}
+          </div>
         </div>
       </div>
     );
@@ -328,8 +430,19 @@ export default function VoterMode({ pollId, showToast, preloadedPoll = null }) {
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-2">
             <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-bold ${isExam ? 'bg-rose-100 text-rose-700' : isWordCloud ? 'bg-sky-100 text-sky-700' : 'bg-indigo-100 text-indigo-700'}`}>
-              {t('voter.question')} {currentQIndex + 1}
+              {selfPaced
+                ? t('voter.questionOfTotal', { current: currentQIndex + 1, total: poll.questions.length })
+                : `${t('voter.question')} ${currentQIndex + 1}`}
             </span>
+            {flash && (
+              <span
+                key={flash.id}
+                role="status"
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black text-white ${FLASH_STYLES[flash.kind]}`}
+              >
+                {t(FLASH_LABELS[flash.kind])}
+              </span>
+            )}
             {isOpen && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold">{t('voter.open')}</span>}
             {isWordCloud && <span className="bg-sky-100 text-sky-700 px-2 py-0.5 rounded text-[10px] font-bold">{t('voter.wordCloud')}</span>}
             {isExam && q.points && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">{t('voter.points', { n: q.points })}</span>}

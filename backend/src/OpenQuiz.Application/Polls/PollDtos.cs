@@ -6,13 +6,15 @@ public record CreatePollRequest(
     string Title,
     PollType Type,
     List<QuestionInput> Questions,
-    DateTime? ScheduledStartAt = null);
+    DateTime? ScheduledStartAt = null,
+    bool SelfPaced = false);
 
 public record UpdatePollRequest(
     string Title,
     PollType Type,
     List<QuestionInput> Questions,
-    DateTime? ScheduledStartAt = null);
+    DateTime? ScheduledStartAt = null,
+    bool SelfPaced = false);
 
 /// <summary>
 /// Copies a poll's questions into a fresh, unstarted one. The title is optional
@@ -65,7 +67,8 @@ public record PollDto(
     DateTime? ScheduledStartAt,
     string? ResultsShareToken,
     bool IsCollaborator,
-    IReadOnlyList<CollaboratorDto> Collaborators);
+    IReadOnlyList<CollaboratorDto> Collaborators,
+    bool SelfPaced = false);
 
 /// <summary>
 /// What the poll list needs. The full <see cref="PollDto"/> carries every

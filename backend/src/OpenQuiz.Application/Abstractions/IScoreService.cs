@@ -5,4 +5,5 @@ namespace OpenQuiz.Application.Abstractions;
 public interface IScoreService
 {
     Task<List<ScoreEntry>> LeaderboardAsync(Guid? pollId, int top, CancellationToken ct);
+    Task<ContestProgress> ContestProgressAsync(Guid pollId, CancellationToken ct);
 }

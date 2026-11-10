@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PresenterMode from './PresenterMode';
 import { pollService } from '../services/pollService';
+import { scoreService } from '../services/scoreService';
 import { POLL_STATUS_VALUE, POLL_TYPE_VALUE, QUESTION_TYPE_VALUE } from '../config/constants';
 
 vi.mock('../services/pollService', () => ({
@@ -18,7 +19,12 @@ vi.mock('../services/voteService', () => ({
   voteService: { aggregates: vi.fn(() => Promise.resolve([])), allOpen: vi.fn(() => Promise.resolve([])), scoreOpen: vi.fn() },
 }));
 vi.mock('../services/wordcloudService', () => ({ wordcloudService: { get: vi.fn() } }));
-vi.mock('../services/scoreService', () => ({ scoreService: { leaderboard: vi.fn(() => Promise.resolve([])) } }));
+vi.mock('../services/scoreService', () => ({
+  scoreService: {
+    leaderboard: vi.fn(() => Promise.resolve([])),
+    progress: vi.fn(() => Promise.resolve({ participants: 0, finished: 0 })),
+  },
+}));
 vi.mock('../services/reactionService', () => ({ reactionService: { tally: vi.fn(() => Promise.resolve([])) } }));
 vi.mock('../services/realtimeService', () => ({
   realtimeService: { subscribe: vi.fn(() => Promise.resolve(() => {})) },
@@ -57,6 +63,40 @@ describe('PresenterMode keyboard', () => {
 
     await userEvent.keyboard('{ArrowRight}');
     await waitFor(() => expect(pollService.nextQuestion).toHaveBeenCalledWith('poll-1'));
+  });
+});
+
+describe('PresenterMode self-paced contest', () => {
+  const SELF_PACED = { ...POLL, selfPaced: true };
+  const STANDINGS = [
+    { userName: 'Grace', points: 20, totalTimeMs: 12_300 },
+    { userName: 'Ada', points: 20, totalTimeMs: 41_000 },
+  ];
+
+  it('shows how far the room has got instead of a question to advance', async () => {
+    pollService.get.mockResolvedValue(SELF_PACED);
+    scoreService.progress.mockResolvedValue({ participants: 3, finished: 1 });
+    scoreService.leaderboard.mockResolvedValue(STANDINGS);
+    render(<PresenterMode pollId="poll-1" onExit={vi.fn()} showToast={vi.fn()} />);
+
+    expect(await screen.findByText('Katılımcılar soruları kendi hızında cevaplıyor')).toBeInTheDocument();
+    expect(await screen.findByText('Tamamlayan: 1 / 3')).toBeInTheDocument();
+    expect(await screen.findByText('Grace')).toBeInTheDocument();
+    expect(screen.getByText('12.3 sn')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sonraki Soru' })).not.toBeInTheDocument();
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(pollService.nextQuestion).not.toHaveBeenCalled();
+  });
+
+  it('puts the final standings up once the contest ends', async () => {
+    pollService.get.mockResolvedValue({ ...SELF_PACED, status: POLL_STATUS_VALUE.ended });
+    scoreService.leaderboard.mockResolvedValue(STANDINGS);
+    render(<PresenterMode pollId="poll-1" onExit={vi.fn()} showToast={vi.fn()} />);
+
+    expect(await screen.findByText('Final Sıralaması')).toBeInTheDocument();
+    expect(await screen.findByText('Ada')).toBeInTheDocument();
+    expect(scoreService.leaderboard).toHaveBeenLastCalledWith('poll-1', 100, { auth: true });
   });
 });
 

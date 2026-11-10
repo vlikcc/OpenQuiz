@@ -19,6 +19,19 @@ public class ScoreConfiguration : IEntityTypeConfiguration<Score>
     }
 }
 
+public class ParticipantProgressConfiguration : IEntityTypeConfiguration<ParticipantProgress>
+{
+    public void Configure(EntityTypeBuilder<ParticipantProgress> b)
+    {
+        b.ToTable("ParticipantProgress");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.VoterKey).IsRequired().HasMaxLength(160);
+        b.Property(x => x.UserName).IsRequired().HasMaxLength(128);
+
+        b.HasIndex(x => new { x.PollId, x.VoterKey }).IsUnique();
+    }
+}
+
 public class ReactionConfiguration : IEntityTypeConfiguration<Reaction>
 {
     public void Configure(EntityTypeBuilder<Reaction> b)

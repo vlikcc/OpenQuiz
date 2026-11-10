@@ -18,6 +18,7 @@ public class OpenQuizDbContext : DbContext
     public DbSet<WordCloudSubmission> WordCloudSubmissions => Set<WordCloudSubmission>();
     public DbSet<WordCloudAggregate> WordCloudAggregates => Set<WordCloudAggregate>();
     public DbSet<Score> Scores => Set<Score>();
+    public DbSet<ParticipantProgress> ParticipantProgress => Set<ParticipantProgress>();
     public DbSet<Reaction> Reactions => Set<Reaction>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<BillingAccount> BillingAccounts => Set<BillingAccount>();

@@ -82,6 +82,7 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
   const [showBank, setShowBank] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [scheduledLocal, setScheduledLocal] = useState(() => toLocalInput(poll?.scheduledStartAt));
+  const [selfPaced, setSelfPaced] = useState(() => (poll ? !!poll.selfPaced : contentType === 'contest'));
   const [collabEmail, setCollabEmail] = useState('');
   const [collaborators, setCollaborators] = useState(poll?.collaborators || []);
 
@@ -218,6 +219,7 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
       title: quizTitle,
       type: POLL_TYPE_VALUE[contentType],
       scheduledStartAt: scheduledLocal ? new Date(scheduledLocal).toISOString() : null,
+      selfPaced: contentType === 'contest' && selfPaced,
       questions: questions.map((q, idx) => ({
         orderIndex: idx,
         text: q.text,
@@ -289,6 +291,21 @@ export default function PollForm({ contentType, poll = null, showToast, onCancel
         />
         <p className="text-xs text-slate-400 mt-1">{t('session.scheduleHint')}</p>
       </div>
+
+      {contentType === 'contest' && (
+        <label className="mb-6 flex items-start gap-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-xl p-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={selfPaced}
+            onChange={(e) => setSelfPaced(e.target.checked)}
+            className="mt-1 h-4 w-4 accent-indigo-600"
+          />
+          <span>
+            <span className="block text-sm font-bold text-slate-700 dark:text-slate-200">{t('session.selfPaced')}</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400 mt-1">{t('session.selfPacedHint')}</span>
+          </span>
+        </label>
+      )}
 
       {poll?.id && !poll.isCollaborator && (
         <div className="mb-6 bg-slate-50 dark:bg-slate-900/60 rounded-xl p-4 border border-slate-200 dark:border-slate-700">

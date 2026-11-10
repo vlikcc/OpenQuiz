@@ -8,7 +8,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
  * Rendered on the presentation screen while a session is running, so the top of
  * the table is deliberately larger than the tail.
  */
-export default function Leaderboard({ entries, tone = 'dark', highlightCount = 3 }) {
+export default function Leaderboard({ entries, tone = 'dark', highlightCount = 3, showTime = false }) {
   const { t } = useTranslation();
   const styles = tone === 'dark' ? DARK : LIGHT;
 
@@ -29,6 +29,11 @@ export default function Leaderboard({ entries, tone = 'dark', highlightCount = 3
           <span className={`flex-1 truncate font-bold ${index < highlightCount ? 'text-xl' : ''}`}>
             {entry.userName}
           </span>
+          {showTime && (
+            <span className={`shrink-0 text-sm tabular-nums ${styles.rank}`}>
+              {t('results.seconds', { n: (entry.totalTimeMs / 1000).toFixed(1) })}
+            </span>
+          )}
           <span className={`shrink-0 font-black tabular-nums ${index === 0 ? styles.leader : ''}`}>
             {index === 0 && <Crown size={16} className="inline -mt-1 mr-1" />}
             {t('results.points', { n: entry.points })}

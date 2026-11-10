@@ -63,6 +63,23 @@ public class ParticipantCapTests(DatabaseFixture sql) : ApiTestBase(sql, Setting
         Assert.Equal("application/problem+json", rejected.Content.Headers.ContentType?.MediaType);
     }
 
+    [Fact]
+    public async Task People_who_joined_the_waiting_room_still_count_once_the_session_starts()
+    {
+        var auth = await RegisterOnPlanAsync("free");
+        await OverrideParticipantCapAsync(auth.User.Id, 1);
+
+        using var owner = ClientFor(auth);
+        var poll = await CreatePollAsync(owner);
+        (await PostAsync(Anonymous, $"/api/polls/{poll.Id}/join", new JoinPollRequest("Early"))).EnsureSuccessStatusCode();
+
+        var live = await ActivateAsync(owner, poll.Id);
+        var late = await PostAsync(Anonymous, $"/api/polls/{poll.Id}/join", new JoinPollRequest("Late"));
+
+        Assert.Equal(1, live.ParticipantCount);
+        Assert.Equal(HttpStatusCode.PaymentRequired, late.StatusCode);
+    }
+
     private async Task OverrideParticipantCapAsync(Guid ownerUserId, long cap)
     {
         await using var db = CreateDbContext();

@@ -154,7 +154,9 @@
     "helpExportBody": "After a session ends, open Results. CSV, Excel and PDF export depend on your plan.",
     "aboutTitle": "About OpenQuiz",
     "themeLight": "Light",
-    "themeDark": "Dark"
+    "themeDark": "Dark",
+    "selfPaced": "Automatic question flow",
+    "selfPacedHint": "Each participant moves to the next question as soon as they answer; the host only starts and ends the contest. On equal points the fastest finisher wins."
   },
   "tabs": {
     "dashboard": "Home",
@@ -169,7 +171,8 @@
     "wrong": "WRONG",
     "waitingForNext": "Waiting for the next question…",
     "waitingForPresenter": "Waiting for presenter to advance…",
-    "ended": "The poll has ended.",
+    "ended": "The event has ended.",
+    "endedThanks": "Thanks for taking part, {{name}}!",
     "question": "QUESTION",
     "open": "OPEN-ENDED",
     "wordCloud": "WORD CLOUD",
@@ -187,7 +190,11 @@
     "timeUp": "TIME IS UP",
     "secondsLeft": "{{n}}s",
     "sessionFull": "This session is full: it has reached its participant limit.",
-    "joinFailed": "Could not join the session. Please try again."
+    "joinFailed": "Could not join the session. Please try again.",
+    "finishedTitle": "All done!",
+    "yourScore": "Your score: {{n}}",
+    "waitingForResults": "Waiting for the host to reveal the results...",
+    "questionOfTotal": "QUESTION {{current}}/{{total}}"
   },
   "presenter": {
     "waitingRoomTitle": "Waiting room",
@@ -208,7 +215,12 @@
     "reactions": "Reactions",
     "started": "Contest started",
     "ended": "Contest ended",
-    "prev": "Previous"
+    "prev": "Previous",
+    "selfPacedTitle": "Participants are answering at their own pace",
+    "finishedCount": "Finished: {{finished}} / {{total}}",
+    "finalStandings": "Final standings",
+    "answeredPerQuestion": "Q{{n}}: {{count}} answers",
+    "tieBreakHint": "On equal points, whoever finished fastest ranks higher."
   },
   "profile": {
     "logout": "Sign out",
@@ -340,7 +352,8 @@
     "sheetQuestions": "Questions",
     "sheetOpen": "Open answers",
     "sheetCloud": "Word cloud",
-    "sheetVotes": "Votes"
+    "sheetVotes": "Votes",
+    "seconds": "{{n}} s"
   },
   "grading": {
     "score": "Score",

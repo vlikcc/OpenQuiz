@@ -19,6 +19,7 @@ public class VoteService : IVoteService
     private readonly IScoreService _scores;
     private readonly IValidator<SubmitVoteRequest> _vv;
     private readonly IValidator<SubmitOpenAnswerRequest> _ov;
+    private readonly IValidator<ProgressRequest> _pv;
 
     public VoteService(
         OpenQuizDbContext db,
@@ -26,9 +27,10 @@ public class VoteService : IVoteService
         IRealtimeNotifier realtime,
         IScoreService scores,
         IValidator<SubmitVoteRequest> vv,
-        IValidator<SubmitOpenAnswerRequest> ov)
+        IValidator<SubmitOpenAnswerRequest> ov,
+        IValidator<ProgressRequest> pv)
     {
-        _db = db; _user = user; _realtime = realtime; _scores = scores; _vv = vv; _ov = ov;
+        _db = db; _user = user; _realtime = realtime; _scores = scores; _vv = vv; _ov = ov; _pv = pv;
     }
 
     public async Task<VoteDto> SubmitAsync(Guid pollId, SubmitVoteRequest req, CancellationToken ct)
@@ -41,10 +43,109 @@ public class VoteService : IVoteService
             .FirstOrDefaultAsync(p => p.Id == pollId, ct)
             ?? throw Errors.NotFound("Poll");
 
+        if (poll.SelfPaced) return await SubmitSelfPacedAsync(poll, req, now, ct);
+
         var question = PollParticipation.EnsureVotable(poll, req.QuestionIndex, now);
         var elapsedMs = PollParticipation.ElapsedMs(poll, now, req.ResponseTimeMs);
 
-        var voterKey = VoterKeyFor(req.UserName);
+        var vote = await RecordVoteAsync(poll, question, req, elapsedMs, now, ct);
+
+        if (vote.IsCorrect == true)
+            await AwardPointsAsync(poll.Id, poll.SelfPaced, vote.UserName, question.Points, elapsedMs, ct);
+
+        // Recompute aggregate for this question and notify.
+        var thisQ = await SingleQuestionAggregateAsync(poll.Id, question.Id, req.QuestionIndex, ct);
+        await _realtime.VoteCountsUpdatedAsync(pollId, thisQ);
+
+        return ToDto(vote, req.SelectedIndices);
+    }
+
+    /// <summary>
+    /// Answers in a self-paced contest are checked against the participant's
+    /// own place and clock, and every one moves them on — right or wrong — so
+    /// the time on the scoreboard is how long they took to get through.
+    /// </summary>
+    private async Task<VoteDto> SubmitSelfPacedAsync(Poll poll, SubmitVoteRequest req, DateTime now, CancellationToken ct)
+    {
+        if (poll.Status != PollStatus.Live)
+            throw Errors.Conflict("This poll is not accepting answers right now.");
+
+        var questions = SelfPacedContest.Ordered(poll);
+        var question = questions.ElementAtOrDefault(req.QuestionIndex)
+                       ?? throw Errors.Validation("Question index out of range.");
+
+        var row = await SelfPacedContest.RowAsync(_db, poll.Id, VoterKeys.For(_user.UserId, req.UserName), req.UserName, ct);
+        var at = SelfPacedContest.CatchUp(row, poll, questions, now, PollParticipation.Grace);
+        if (at.Finished || at.QuestionIndex != req.QuestionIndex)
+        {
+            throw Errors.Conflict(row.QuestionIndex == req.QuestionIndex && row.FinishedAt is null
+                ? "Time is up for this question."
+                : "This question is no longer open.");
+        }
+
+        var elapsedMs = (int)Math.Clamp((now - at.StartedAt).TotalMilliseconds, 0, int.MaxValue);
+        var vote = await RecordVoteAsync(poll, question, req, elapsedMs, now, ct);
+
+        var next = SelfPacedContest.Advance(at, questions.Count, now, elapsedMs);
+        var moved = await SelfPacedContest.MoveAsync(_db, row, next, ct);
+        var points = vote.IsCorrect == true ? question.Points : 0;
+        if (moved || points > 0)
+            await AwardPointsAsync(poll.Id, poll.SelfPaced, vote.UserName, points, moved ? next.ChargedMs : 0, ct);
+
+        var thisQ = await SingleQuestionAggregateAsync(poll.Id, question.Id, req.QuestionIndex, ct);
+        await _realtime.VoteCountsUpdatedAsync(poll.Id, thisQ);
+
+        return ToDto(vote, req.SelectedIndices);
+    }
+
+    public async Task<ParticipantProgressDto> ProgressAsync(Guid pollId, ProgressRequest req, CancellationToken ct)
+    {
+        await _pv.ValidateAndThrowAsync(req, ct);
+
+        var now = DateTime.UtcNow;
+        var poll = await _db.Polls.Include(p => p.Questions).AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pollId, ct)
+            ?? throw Errors.NotFound("Poll");
+        if (!poll.SelfPaced) throw Errors.Conflict("Questions in this poll are moved on by the presenter.");
+
+        var userName = req.UserName.Trim();
+        var points = await _db.Scores.AsNoTracking()
+            .Where(s => s.PollId == pollId && s.UserName == userName)
+            .Select(s => (int?)s.Points)
+            .FirstOrDefaultAsync(ct) ?? 0;
+
+        if (poll.Status != PollStatus.Live)
+            return new ParticipantProgressDto(0, null, poll.Status == PollStatus.Ended, points, now);
+
+        var questions = SelfPacedContest.Ordered(poll);
+        var row = await SelfPacedContest.RowAsync(_db, pollId, VoterKeys.For(_user.UserId, userName), userName, ct);
+        var at = SelfPacedContest.CatchUp(row, poll, questions, now, TimeSpan.Zero);
+
+        // Only the question on screen can be given up, and only by its owner's
+        // phone once the countdown it drew reached zero. Giving it up early
+        // scores nothing, so it buys nothing either.
+        if (req.SkipQuestionIndex == at.QuestionIndex && !at.Finished)
+        {
+            var limitMs = questions[at.QuestionIndex].TimeLimit * 1000L;
+            var spent = Math.Clamp((long)(now - at.StartedAt).TotalMilliseconds, 0, limitMs > 0 ? limitMs : long.MaxValue);
+            at = SelfPacedContest.Advance(at, questions.Count, now, spent);
+        }
+
+        if (await SelfPacedContest.MoveAsync(_db, row, at, ct) && at.ChargedMs > 0)
+            await AwardPointsAsync(poll.Id, poll.SelfPaced, userName, 0, at.ChargedMs, ct);
+
+        return new ParticipantProgressDto(
+            Math.Min(at.QuestionIndex, questions.Count),
+            at.Finished ? null : at.StartedAt,
+            at.Finished,
+            points,
+            now);
+    }
+
+    private async Task<Vote> RecordVoteAsync(
+        Poll poll, Question question, SubmitVoteRequest req, int elapsedMs, DateTime now, CancellationToken ct)
+    {
+        var voterKey = VoterKeys.For(_user.UserId, req.UserName);
         var alreadyVoted = await _db.Votes
             .AnyAsync(v => v.QuestionId == question.Id && v.VoterKey == voterKey, ct);
         if (alreadyVoted) throw Errors.Conflict("You have already voted on this question.");
@@ -81,16 +182,11 @@ public class VoteService : IVoteService
             throw Errors.Conflict("You have already voted on this question.");
         }
 
-        if (isCorrect == true)
-            await AwardPointsAsync(poll.Id, vote.UserName, question.Points, elapsedMs, ct);
-
-        // Recompute aggregate for this question and notify.
-        var thisQ = await SingleQuestionAggregateAsync(poll.Id, question.Id, req.QuestionIndex, ct);
-        await _realtime.VoteCountsUpdatedAsync(pollId, thisQ);
-
-        return new VoteDto(vote.Id, vote.QuestionId, vote.UserName, req.SelectedIndices,
-            vote.IsCorrect, vote.ResponseTimeMs, vote.CreatedAt);
+        return vote;
     }
+
+    private static VoteDto ToDto(Vote vote, List<int> selected) =>
+        new(vote.Id, vote.QuestionId, vote.UserName, selected, vote.IsCorrect, vote.ResponseTimeMs, vote.CreatedAt);
 
     public async Task<OpenAnswerDto> SubmitOpenAsync(Guid pollId, SubmitOpenAnswerRequest req, CancellationToken ct)
     {
@@ -185,7 +281,7 @@ public class VoteService : IVoteService
         await _db.SaveChangesAsync(ct);
 
         if (delta != 0)
-            await AwardPointsAsync(pollId, answer.UserName, delta, elapsedMs: 0, ct);
+            await AwardPointsAsync(pollId, selfPaced: false, answer.UserName, delta, elapsedMs: 0, ct);
 
         return new OpenAnswerDto(
             answer.Id, answer.QuestionId, answer.UserName, answer.AnswerText, answer.Score, answer.CreatedAt);
@@ -222,53 +318,18 @@ public class VoteService : IVoteService
         return result;
     }
 
-    /// <summary>
-    /// Adds to a running total, so two answers scored at the same moment do not
-    /// overwrite each other, and tells the room where it now stands.
-    /// </summary>
-    private async Task AwardPointsAsync(Guid pollId, string userName, int points, int elapsedMs, CancellationToken ct)
+    /// <summary>Adds to a participant's total and tells the room where it now stands.</summary>
+    private async Task AwardPointsAsync(Guid pollId, bool selfPaced, string userName, int points, long elapsedMs, CancellationToken ct)
     {
-        await AccumulateAsync(pollId, userName, points, elapsedMs, ct);
+        await ScoreLedger.AccumulateAsync(_db, pollId, userName, points, elapsedMs, ct);
 
         var standings = await _scores.LeaderboardAsync(pollId, LeaderboardSize, ct);
-        await _realtime.LeaderboardUpdatedAsync(pollId, new LeaderboardUpdate(standings));
+        var progress = selfPaced ? await _scores.ContestProgressAsync(pollId, ct) : null;
+        await _realtime.LeaderboardUpdatedAsync(pollId, new LeaderboardUpdate(standings, progress));
     }
 
     /// <summary>How much of the table a live screen shows.</summary>
     private const int LeaderboardSize = 10;
-
-    private Task AccumulateAsync(Guid pollId, string userName, int points, int elapsedMs, CancellationToken ct)
-    {
-        var now = DateTime.UtcNow;
-
-        return ConcurrentCounters.IncrementOrCreateAsync(
-            token => _db.Scores
-                .Where(s => s.PollId == pollId && s.UserName == userName)
-                .ExecuteUpdateAsync(set => set
-                    .SetProperty(s => s.Points, s => s.Points + points)
-                    .SetProperty(s => s.TotalTimeMs, s => s.TotalTimeMs + elapsedMs)
-                    .SetProperty(s => s.UpdatedAt, now), token),
-            async token =>
-            {
-                _db.Scores.Add(new Score
-                {
-                    PollId = pollId,
-                    UserName = userName,
-                    Points = points,
-                    TotalTimeMs = elapsedMs,
-                    UpdatedAt = now
-                });
-                await _db.SaveChangesAsync(token);
-            },
-            ct);
-    }
-
-    // Signed-in voters are deduplicated on their account, anonymous ones on the
-    // name they joined under, which is the only identity they have.
-    private string VoterKeyFor(string userName) =>
-        _user.UserId is Guid uid
-            ? $"user:{uid}"
-            : $"anon:{userName.Trim().ToLowerInvariant()}";
 
     private void EnsureOwnerAccess(Guid pollId)
     {

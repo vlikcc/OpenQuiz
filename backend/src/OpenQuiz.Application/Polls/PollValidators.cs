@@ -12,6 +12,8 @@ public class CreatePollValidator : AbstractValidator<CreatePollRequest>
         RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
         RuleFor(x => x.Questions).NotEmpty().Must(q => q.Count <= 200);
         RuleForEach(x => x.Questions).SetValidator(new QuestionInputValidator());
+        RuleFor(x => x).Must(x => SelfPacing.IsAllowed(x.SelfPaced, x.Type, x.Questions))
+            .WithMessage(SelfPacing.Message);
     }
 }
 
@@ -22,7 +24,22 @@ public class UpdatePollValidator : AbstractValidator<UpdatePollRequest>
         RuleFor(x => x.Title).NotEmpty().MaximumLength(256);
         RuleFor(x => x.Questions).NotEmpty();
         RuleForEach(x => x.Questions).SetValidator(new QuestionInputValidator());
+        RuleFor(x => x).Must(x => SelfPacing.IsAllowed(x.SelfPaced, x.Type, x.Questions))
+            .WithMessage(SelfPacing.Message);
     }
+}
+
+/// <summary>
+/// A self-paced room is scored the moment an answer lands, so it only works
+/// where every question has an answer key: multiple-choice contests.
+/// </summary>
+internal static class SelfPacing
+{
+    public const string Message = "Automatic question flow is only available for contests made of multiple-choice questions.";
+
+    public static bool IsAllowed(bool selfPaced, PollType type, List<QuestionInput>? questions) =>
+        !selfPaced
+        || (type == PollType.Contest && (questions ?? []).All(q => q.QuestionType == QuestionType.MultipleChoice));
 }
 
 public class QuestionInputValidator : AbstractValidator<QuestionInput>

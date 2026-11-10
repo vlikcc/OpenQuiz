@@ -39,6 +39,14 @@ public class ScoreService : IScoreService
             .ToListAsync(ct);
     }
 
+    public async Task<ContestProgress> ContestProgressAsync(Guid pollId, CancellationToken ct)
+    {
+        var rows = _db.ParticipantProgress.AsNoTracking().Where(p => p.PollId == pollId);
+        return new ContestProgress(
+            await rows.CountAsync(ct),
+            await rows.CountAsync(p => p.FinishedAt != null, ct));
+    }
+
     private async Task<int> MaxTopAsync(Guid? pollId, CancellationToken ct)
     {
         if (_user.IsAdmin) return OwnerTop;

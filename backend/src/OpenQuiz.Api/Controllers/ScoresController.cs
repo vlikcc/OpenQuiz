@@ -17,4 +17,8 @@ public class ScoresController : ControllerBase
         [FromQuery] int top = 100,
         CancellationToken ct = default)
         => Ok(await _scores.LeaderboardAsync(pollId, top, ct));
+
+    [HttpGet("progress")]
+    public async Task<ActionResult<ContestProgress>> Progress([FromQuery] Guid pollId, CancellationToken ct)
+        => Ok(await _scores.ContestProgressAsync(pollId, ct));
 }

@@ -24,6 +24,7 @@ const WordCloudCanvas = lazy(() => import('./wordcloud/WordCloudCanvas'));
 
 // What the wall has room for, and what the hub sends after a scored answer.
 const LEADERBOARD_SIZE = 10;
+const FINAL_STANDINGS_SIZE = 100;
 
 /** Keeps the running totals in step with the bursts arriving from the hub. */
 function bumpTally(tally, emoji) {
@@ -61,6 +62,62 @@ function JoinPanel({ pollId, joinCode }) {
   );
 }
 
+/**
+ * A self-paced contest has no "current question" to project: everyone is on
+ * their own. The wall shows how far the room has got and who is ahead, and
+ * once it ends, the final standings.
+ */
+function SelfPacedBoard({ poll, ended, scores, progress, aggregates, onEnd, onExit }) {
+  const { t } = useTranslation();
+  const total = progress?.participants ?? 0;
+  const finished = progress?.finished ?? 0;
+  const answered = (index) => aggregates.find((a) => a.questionIndex === index)?.totalRespondents ?? 0;
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6 text-center">
+        <h2 className="text-3xl font-bold mb-2">{ended ? t('presenter.finalStandings') : t('presenter.selfPacedTitle')}</h2>
+        <p className="text-white/70 text-sm">{t('presenter.tieBreakHint')}</p>
+      </div>
+
+      {!ended && (
+        <div className="mb-6">
+          <div className="flex justify-between text-sm font-bold mb-2" aria-live="polite">
+            <span>{t('presenter.finishedCount', { finished, total })}</span>
+          </div>
+          <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-400 transition-all duration-500"
+              style={{ width: `${total > 0 ? (finished / total) * 100 : 0}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {poll.questions.map((q, i) => (
+              <span key={q.id || i} className="px-3 py-1 text-xs bg-white/10 rounded-full tabular-nums">
+                {t('presenter.answeredPerQuestion', { n: i + 1, count: answered(i) })}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 min-h-[300px]">
+        <Leaderboard entries={scores} showTime />
+      </div>
+
+      <div className="flex justify-end mt-6">
+        {ended ? (
+          <button onClick={onExit} className="px-6 py-3 bg-slate-600 hover:bg-slate-700 rounded-lg font-bold">{t('presenter.doneBack')}</button>
+        ) : (
+          <button onClick={onEnd} aria-label={t('presenter.endButton')} className="px-6 py-3 bg-rose-600 hover:bg-rose-700 rounded-lg font-bold flex items-center gap-2">
+            <Square size={16} /> {t('presenter.endButton')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PresenterMode({ pollId, onExit, showToast }) {
   const { t } = useTranslation();
   const [poll, setPoll] = useState(null);
@@ -68,6 +125,7 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
   const [openAnswers, setOpenAnswers] = useState([]);
   const [wordCloud, setWordCloud] = useState({ questionIndex: 0, terms: [] });
   const [scores, setScores] = useState([]);
+  const [contestProgress, setContestProgress] = useState(null);
   const [showQr, setShowQr] = useState(false);
   // A tab the presenter picked, remembered only for as long as the session is
   // in the same state — so ending a contest brings up the standings on its own.
@@ -108,7 +166,11 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
       },
       onWordCloudUpdated: (payload) => { if (active) setWordCloud(payload); },
       onOpenAnswerSubmitted: () => { if (active) scheduleOpenAnswerReload(); },
-      onLeaderboardUpdated: (payload) => { if (active) setScores(payload.entries || []); },
+      onLeaderboardUpdated: (payload) => {
+        if (!active) return;
+        setScores(payload.entries || []);
+        if (payload.progress) setContestProgress(payload.progress);
+      },
       onReaction: (r) => {
         if (!active) return;
         const id = ++reactionIdRef.current;
@@ -131,13 +193,25 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
   const typeKey = poll ? (POLL_TYPE_KEY[poll.type] || 'contest') : 'contest';
   const typeCfg = CONTENT_TYPES[typeKey] || CONTENT_TYPES.contest;
   const hasScores = typeCfg.hasCorrectAnswer;
+  const selfPaced = !!poll?.selfPaced;
 
   // The hub pushes the standings after every scored answer; this is the first
   // draw, and the redraw for a presenter who opens a session already in play.
+  // A finished self-paced contest has nothing else on screen, so it gets the
+  // whole table rather than the top of it.
   useEffect(() => {
     if (!pollId || !hasScores) return;
-    scoreService.leaderboard(pollId, LEADERBOARD_SIZE).then(setScores).catch(() => {});
-  }, [pollId, hasScores, statusKey]);
+    const final = selfPaced && statusKey === 'ended';
+    scoreService.leaderboard(pollId, final ? FINAL_STANDINGS_SIZE : LEADERBOARD_SIZE, { auth: final })
+      .then(setScores).catch(() => {});
+  }, [pollId, hasScores, statusKey, selfPaced]);
+
+  // Joining does not touch the standings, so the head count is refetched when
+  // the room's size changes rather than waiting for the next answer.
+  useEffect(() => {
+    if (!pollId || !selfPaced) return;
+    scoreService.progress(pollId).then(setContestProgress).catch(() => {});
+  }, [pollId, selfPaced, statusKey, poll?.participantCount]);
 
   // Refresh aggregates / open answers / wordcloud when question changes
   useEffect(() => {
@@ -169,7 +243,7 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (statusKey !== 'live') return;
+      if (statusKey !== 'live' || selfPaced) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         pollService.prevQuestion(pollId).then(setPoll).catch((err) => showToast(err.message, 'error'));
@@ -180,7 +254,7 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [statusKey, pollId, showToast]);
+  }, [statusKey, selfPaced, pollId, showToast]);
 
   if (!poll) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
@@ -251,7 +325,19 @@ export default function PresenterMode({ pollId, onExit, showToast }) {
           </div>
         )}
 
-        {statusKey !== 'waiting' && currentQ && (
+        {statusKey !== 'waiting' && selfPaced && (
+          <SelfPacedBoard
+            poll={poll}
+            ended={statusKey === 'ended'}
+            scores={scores}
+            progress={contestProgress}
+            aggregates={aggregates}
+            onEnd={handleEnd}
+            onExit={onExit}
+          />
+        )}
+
+        {statusKey !== 'waiting' && !selfPaced && currentQ && (
           <div className="max-w-5xl mx-auto">
             <div className="mb-6">
               <div className="text-sm text-white/70 mb-2">{t('presenter.questionOf', { current: (poll.currentQuestionIndex || 0) + 1, total: poll.questions.length })}</div>

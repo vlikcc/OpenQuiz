@@ -278,6 +278,46 @@ namespace OpenQuiz.Infrastructure.Persistence.Migrations
                     b.ToTable("Options", (string)null);
                 });
 
+            modelBuilder.Entity("OpenQuiz.Domain.Entities.ParticipantProgress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PollId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("QuestionIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("QuestionStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .UseCollation("case_insensitive");
+
+                    b.Property<string>("VoterKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PollId", "VoterKey")
+                        .IsUnique();
+
+                    b.ToTable("ParticipantProgress", (string)null);
+                });
+
             modelBuilder.Entity("OpenQuiz.Domain.Entities.PasswordResetToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -402,6 +442,9 @@ namespace OpenQuiz.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime?>("ScheduledStartAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("SelfPaced")
+                        .HasColumnType("boolean");
 
                     b.Property<byte>("Status")
                         .HasColumnType("smallint");

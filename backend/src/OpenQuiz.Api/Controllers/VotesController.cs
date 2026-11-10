@@ -21,6 +21,11 @@ public class VotesController : ControllerBase
         => Ok(await _votes.SubmitAsync(pollId, req, ct));
 
     [EnableRateLimiting(RateLimitPolicies.Participation)]
+    [HttpPost("progress")]
+    public async Task<ActionResult<ParticipantProgressDto>> Progress(Guid pollId, [FromBody] ProgressRequest req, CancellationToken ct)
+        => Ok(await _votes.ProgressAsync(pollId, req, ct));
+
+    [EnableRateLimiting(RateLimitPolicies.Participation)]
     [HttpPost("open-answers")]
     public async Task<ActionResult<OpenAnswerDto>> SubmitOpen(Guid pollId, [FromBody] SubmitOpenAnswerRequest req, CancellationToken ct)
         => Ok(await _votes.SubmitOpenAsync(pollId, req, ct));

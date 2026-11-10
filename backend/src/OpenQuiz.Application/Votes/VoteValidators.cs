@@ -12,6 +12,15 @@ public class SubmitVoteValidator : AbstractValidator<SubmitVoteRequest>
     }
 }
 
+public class ProgressRequestValidator : AbstractValidator<ProgressRequest>
+{
+    public ProgressRequestValidator()
+    {
+        RuleFor(x => x.UserName).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.SkipQuestionIndex).GreaterThanOrEqualTo(0).When(x => x.SkipQuestionIndex.HasValue);
+    }
+}
+
 public class SubmitOpenAnswerValidator : AbstractValidator<SubmitOpenAnswerRequest>
 {
     public SubmitOpenAnswerValidator()

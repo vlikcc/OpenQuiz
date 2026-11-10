@@ -11,6 +11,24 @@ public record SubmitOpenAnswerRequest(
     string AnswerText,
     string UserName);
 
+/// <summary>
+/// A participant in a self-paced contest asking where they are. Naming the
+/// question they ran out of time on moves them past it.
+/// </summary>
+public record ProgressRequest(string UserName, int? SkipQuestionIndex = null);
+
+/// <summary>
+/// One participant's place in a self-paced contest. <see cref="ServerTime"/>
+/// plays the same part as on the poll snapshot: it lets the phone draw a
+/// countdown that agrees with the deadline the server enforces.
+/// </summary>
+public record ParticipantProgressDto(
+    int QuestionIndex,
+    DateTime? QuestionStartedAt,
+    bool Finished,
+    int Points,
+    DateTime ServerTime);
+
 public record VoteDto(
     Guid Id,
     Guid QuestionId,

@@ -112,6 +112,7 @@ public class PollService : IPollService
             CreatedAt = DateTime.UtcNow,
             JoinCode = await AllocateJoinCodeAsync(ct),
             ScheduledStartAt = req.ScheduledStartAt,
+            SelfPaced = req.SelfPaced,
             Questions = req.Questions
                 .OrderBy(q => q.OrderIndex)
                 .Select((q, idx) => MapQuestion(q, idx))
@@ -150,6 +151,7 @@ public class PollService : IPollService
             Title = title,
             Type = source.Type,
             Status = PollStatus.Waiting,
+            SelfPaced = source.SelfPaced,
             CurrentQuestionIndex = 0,
             CreatorId = uid,
             CreatedAt = DateTime.UtcNow,
@@ -201,6 +203,9 @@ public class PollService : IPollService
 
         poll.Title = req.Title;
         poll.Type = req.Type;
+        if (poll.Status == PollStatus.Live && poll.SelfPaced != req.SelfPaced)
+            throw Errors.Conflict("The question flow cannot be changed while the session is running.");
+        poll.SelfPaced = req.SelfPaced;
         poll.ScheduledStartAt = req.ScheduledStartAt;
         poll.UpdatedAt = DateTime.UtcNow;
 
@@ -282,6 +287,7 @@ public class PollService : IPollService
     public async Task<PollDto> NextQuestionAsync(Guid id, CancellationToken ct) =>
         await TransitionAsync(id, p =>
         {
+            EnsurePresenterPaced(p);
             var total = p.Questions.Count;
             if (p.CurrentQuestionIndex + 1 >= total) { p.Status = PollStatus.Ended; p.IsActive = false; p.QuestionStartedAt = null; }
             else { p.CurrentQuestionIndex++; p.QuestionStartedAt = DateTime.UtcNow; }
@@ -292,11 +298,30 @@ public class PollService : IPollService
     public async Task<PollDto> PrevQuestionAsync(Guid id, CancellationToken ct) =>
         await TransitionAsync(id, p =>
         {
+            EnsurePresenterPaced(p);
             if (p.CurrentQuestionIndex > 0) { p.CurrentQuestionIndex--; p.QuestionStartedAt = DateTime.UtcNow; }
         }, ct);
 
-    public async Task<PollDto> EndAsync(Guid id, CancellationToken ct) =>
-        await TransitionAsync(id, p => { p.Status = PollStatus.Ended; p.IsActive = false; p.QuestionStartedAt = null; }, ct);
+    public async Task<PollDto> EndAsync(Guid id, CancellationToken ct)
+    {
+        var poll = await _db.Polls.Include(p => p.Questions).Include(p => p.Collaborators).AsNoTracking()
+                       .FirstOrDefaultAsync(p => p.Id == id, ct)
+                   ?? throw Errors.NotFound("Poll");
+        EnsureCanPresent(poll);
+
+        // Settled before the room hears the session is over, so the standings
+        // the presenter's screen fetches on that news are already final.
+        if (poll.SelfPaced && poll.Status == PollStatus.Live)
+            await SelfPacedContest.FinishEveryoneAsync(_db, poll, DateTime.UtcNow, ct);
+
+        return await TransitionAsync(id, p => { p.Status = PollStatus.Ended; p.IsActive = false; p.QuestionStartedAt = null; }, ct);
+    }
+
+    private static void EnsurePresenterPaced(Poll poll)
+    {
+        if (poll.SelfPaced)
+            throw Errors.Conflict("Participants move through this contest on their own.");
+    }
 
     /// <summary>
     /// Throws away one session's worth of answers so the same poll can be run
@@ -320,6 +345,7 @@ public class PollService : IPollService
             await _db.WordCloudSubmissions.Where(s => s.PollId == id).ExecuteDeleteAsync(ct);
             await _db.WordCloudAggregates.Where(a => questionIds.Contains(a.QuestionId)).ExecuteDeleteAsync(ct);
             await _db.Scores.Where(s => s.PollId == id).ExecuteDeleteAsync(ct);
+            await _db.ParticipantProgress.Where(p => p.PollId == id).ExecuteDeleteAsync(ct);
             await _db.Reactions.Where(r => r.PollId == id).ExecuteDeleteAsync(ct);
 
             // A set-based UPDATE still bumps the row version, so a presenter
@@ -380,7 +406,15 @@ public class PollService : IPollService
                 "This session has reached its participant limit.");
         }
 
-        return await PublishAsync(id, ct);
+        var poll = await PublishAsync(id, ct);
+        if (poll is { SelfPaced: true, Status: PollStatus.Waiting or PollStatus.Live })
+        {
+            // Someone who joins mid-contest starts their own clock now; the
+            // waiting room starts together with the session.
+            await SelfPacedContest.EnrollAsync(_db, id, VoterKeys.For(_user.UserId, req.UserName), req.UserName,
+                poll.Status == PollStatus.Live ? DateTime.UtcNow : null, ct);
+        }
+        return poll;
     }
 
     public async Task<PollDto?> GetByJoinCodeAsync(string code, CancellationToken ct)
@@ -683,10 +717,13 @@ public class PollService : IPollService
 
     private static void ApplyLive(Poll poll)
     {
+        // People join from the waiting room, so starting the session must keep
+        // them counted — the cap is enforced against this number. Only a rerun
+        // of a finished session starts from an empty room.
+        if (poll.Status == PollStatus.Ended) poll.ParticipantCount = 0;
         poll.Status = PollStatus.Live;
         poll.IsActive = true;
         poll.CurrentQuestionIndex = 0;
-        poll.ParticipantCount = 0;
         poll.QuestionStartedAt = DateTime.UtcNow;
         poll.UpdatedAt = DateTime.UtcNow;
     }
@@ -805,5 +842,6 @@ public class PollService : IPollService
         p.ScheduledStartAt,
         p.ResultsShareToken,
         false,
-        p.Collaborators.Select(ToCollaboratorDto).ToList());
+        p.Collaborators.Select(ToCollaboratorDto).ToList(),
+        p.SelfPaced);
 }

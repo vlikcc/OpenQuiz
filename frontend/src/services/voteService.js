@@ -3,6 +3,12 @@ import { fetchAllPages, pageQuery } from './paging';
 
 export const voteService = {
   submit: (pollId, payload) => api.post(`/api/polls/${pollId}/votes`, payload, { auth: false }),
+  /**
+   * A participant's place in a self-paced contest. Naming the question whose
+   * countdown ran out moves them past it.
+   */
+  progress: (pollId, userName, skipQuestionIndex = null) =>
+    api.post(`/api/polls/${pollId}/progress`, { userName, skipQuestionIndex }, { auth: false }),
   submitOpen: (pollId, payload) => api.post(`/api/polls/${pollId}/open-answers`, payload, { auth: false }),
   list: (pollId, paging) => api.get(`/api/polls/${pollId}/votes?${pageQuery(paging)}`),
   listOpen: (pollId, paging) => api.get(`/api/polls/${pollId}/open-answers?${pageQuery(paging)}`),
